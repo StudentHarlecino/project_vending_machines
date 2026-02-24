@@ -6,8 +6,8 @@ module com.example.project_vending_machines {
     requires java.naming;
     requires java.sql;
 
-    requires org.hibernate.org.core;
-    requires jakarta.peristence;
+    requires org.hibernate.orm.core;
+    requires jakarta.persistence;
 
     requires org.postgresql.jdbc;
 
