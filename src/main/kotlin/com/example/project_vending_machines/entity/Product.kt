@@ -8,7 +8,7 @@ import java.math.BigDecimal
 data class Product(
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    var id: Long = 0,
+    var id: Int = 0,  // Изменено с Long на Int для соответствия SQL serial
 
     @Column(nullable = false)
     var name: String = "",

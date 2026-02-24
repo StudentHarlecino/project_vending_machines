@@ -67,4 +67,22 @@ class VendingMachineDAO {
             session.close()
         }
     }
+
+    fun findByName(name: String): List<VendingMachine> {
+        val session = HibernateUtil.sessionFactory.openSession()
+        val query = session.createQuery("from VendingMachine where name like :name", VendingMachine::class.java)
+        query.setParameter("name", "%$name%")
+        val machines = query.list()
+        session.close()
+        return machines
+    }
+
+    fun findByLocation(location: String): List<VendingMachine> {
+        val session = HibernateUtil.sessionFactory.openSession()
+        val query = session.createQuery("from VendingMachine where location = :location", VendingMachine::class.java)
+        query.setParameter("location", location)
+        val machines = query.list()
+        session.close()
+        return machines
+    }
 }

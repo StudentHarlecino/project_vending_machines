@@ -13,6 +13,10 @@ data class User(
     @Column(name = "role_id", nullable = false)
     var roleId: Int = 0,
 
+    @ManyToOne
+    @JoinColumn(name = "role_id", insertable = false, updatable = false)
+    var role: Role? = null,
+
     @Column(name = "first_name", nullable = false)
     var firstName: String = "",
 

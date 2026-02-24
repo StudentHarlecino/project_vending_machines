@@ -11,7 +11,11 @@ data class Maintenance(
     var id: Long = 0,
 
     @Column(name = "device_id", nullable = false)
-    var deviceId: Int = 0,
+    var deviceId: Int = 0,  // Изменено с Long на Int
+
+    @ManyToOne
+    @JoinColumn(name = "device_id", insertable = false, updatable = false)
+    var vendingMachine: VendingMachine? = null,
 
     @Column(name = "service_date", nullable = false)
     var serviceDate: LocalDate = LocalDate.now(),
@@ -20,7 +24,7 @@ data class Maintenance(
     var description: String? = null,
 
     @Column(name = "performed_by")
-    var performedBy: Int? = null,
+    var performedBy: Int? = null,  // Изменено с Long? на Int?
 
     @ManyToOne
     @JoinColumn(name = "performed_by", insertable = false, updatable = false)

@@ -4,6 +4,7 @@ import com.example.project_vending_machines.HibernateUtil
 import com.example.project_vending_machines.entity.Product
 import org.hibernate.Session
 import org.hibernate.Transaction
+import java.math.BigDecimal
 
 class ProductDAO {
 
@@ -14,7 +15,7 @@ class ProductDAO {
         return products
     }
 
-    fun getById(id: Long): Product? {
+    fun getById(id: Int): Product? {
         val session = HibernateUtil.sessionFactory.openSession()
         val product = session.get(Product::class.java, id)
         session.close()
@@ -51,7 +52,7 @@ class ProductDAO {
         return product
     }
 
-    fun delete(id: Long) {
+    fun delete(id: Int) {
         val session = HibernateUtil.sessionFactory.openSession()
         val transaction: Transaction = session.beginTransaction()
         try {
@@ -66,5 +67,25 @@ class ProductDAO {
         } finally {
             session.close()
         }
+    }
+
+    fun findLowStock(): List<Product> {
+        val session = HibernateUtil.sessionFactory.openSession()
+        val query = session.createQuery(
+            "from Product where quantityInStock <= minimalStock",
+            Product::class.java
+        )
+        val products = query.list()
+        session.close()
+        return products
+    }
+
+    fun findByName(name: String): List<Product> {
+        val session = HibernateUtil.sessionFactory.openSession()
+        val query = session.createQuery("from Product where name like :name", Product::class.java)
+        query.setParameter("name", "%$name%")
+        val products = query.list()
+        session.close()
+        return products
     }
 }
