@@ -31,6 +31,10 @@ import javafx.scene.paint.Color
 import javafx.scene.shape.Rectangle
 import java.math.BigDecimal
 import javafx.scene.control.cell.PropertyValueFactory
+import javafx.beans.value.ChangeListener
+import javafx.beans.value.ObservableValue
+import javafx.stage.Modality
+import java.time.format.DateTimeParseException
 
 class MainApp : Application() {
 
@@ -42,8 +46,6 @@ class MainApp : Application() {
     private val roleDAO = RoleDAO()
 
     private val mainContent = StackPane()
-    private var currentPage = 0
-    private var pageSize = 15
     private var currentData: List<Any> = listOf()
     private var currentEntityClass: Class<*>? = null
     private val tableView = TableView<Any>()
@@ -51,8 +53,6 @@ class MainApp : Application() {
     // Для фильтрации
     private lateinit var filteredData: FilteredList<Any>
     private lateinit var filterField: TextField
-    private lateinit var pageSizeComboBox: ComboBox<Int>
-    private lateinit var paginationLabel: Label
 
     override fun start(primaryStage: Stage) {
         primaryStage.title = "ООО Торговые Автоматы - Личный кабинет"
@@ -69,6 +69,45 @@ class MainApp : Application() {
         primaryStage.show()
     }
 
+    private fun setError(field: TextField) {
+        field.style = "-fx-border-color: #e74c3c; -fx-border-width: 2;"
+    }
+
+    private fun clearError(field: TextField) {
+        field.style = ""
+    }
+
+    private fun validateField(
+        field: TextField,
+        required: Boolean,
+        type: String?
+    ): Boolean {
+
+        val text = field.text.trim()
+
+        if (required && text.isEmpty()) {
+            setError(field)
+            return false
+        }
+
+        if (text.isNotEmpty()) {
+            try {
+                when (type) {
+                    "int" -> text.toInt()
+                    "decimal" -> text.toBigDecimal()
+                    "date" -> LocalDate.parse(text)
+                    "datetime" -> LocalDateTime.parse(text)
+                }
+            } catch (e: Exception) {
+                setError(field)
+                return false
+            }
+        }
+
+        clearError(field)
+        return true
+    }
+
     private fun createHeader(): HBox {
         val header = HBox()
         header.style = "-fx-background-color: #2c3e50; -fx-padding: 10px 15px;"
@@ -77,30 +116,10 @@ class MainApp : Application() {
         val title = Label("ООО Торговые Автоматы")
         title.style = "-fx-text-fill: white; -fx-font-size: 18px; -fx-font-weight: bold;"
 
-        val userInfo = HBox(10.0)
-        userInfo.alignment = Pos.CENTER_RIGHT
-
-        val userName = Label("Автоматов А.А.")
-        userName.style = "-fx-text-fill: white; -fx-font-size: 14px;"
-
-        val userRole = Label("Администратор")
-        userRole.style = "-fx-text-fill: #bdc3c7; -fx-font-size: 12px;"
-
-        val userBox = VBox(2.0)
-        userBox.children.addAll(userName, userRole)
-
-        val profileMenu = MenuButton("", null,
-            MenuItem("Мой профиль"),
-            MenuItem("Мои сессии"),
-            MenuItem("Выход")
-        )
-        profileMenu.style = "-fx-background-color: transparent; -fx-text-fill: white;"
-
         val spacer = Region()
         HBox.setHgrow(spacer, Priority.ALWAYS)
 
-        userInfo.children.addAll(userBox, profileMenu)
-        header.children.addAll(title, spacer, userInfo)
+        header.children.addAll(title, spacer)
 
         return header
     }
@@ -191,29 +210,13 @@ class MainApp : Application() {
         val content = VBox(15.0)
         content.padding = Insets(15.0)
         content.style = "-fx-background-color: #ecf0f1;"
+        content.alignment = Pos.CENTER
 
-        val header = Text("Личный кабинет. Главная")
-        header.font = Font.font("System", FontWeight.BOLD, 16.0)
+        val welcomeText = Text("Добро пожаловать!")
+        welcomeText.font = Font.font("System", FontWeight.BOLD, 24.0)
+        welcomeText.style = "-fx-fill: #2c3e50;"
 
-        val statsGrid = GridPane()
-        statsGrid.hgap = 15.0
-        statsGrid.vgap = 15.0
-
-        val efficiencyCard = createStatsCard("Эффективность сети", "Работающих автомобилей - 100%", "#27ae60")
-        statsGrid.add(efficiencyCard, 0, 0)
-
-        val stateCard = createStatsCard("Состояние сети", "По умолчанию", "#3498db")
-        statsGrid.add(stateCard, 1, 0)
-
-        val summaryCard = createSummaryCard()
-        statsGrid.add(summaryCard, 0, 1, 2, 1)
-
-        val chartsBox = HBox(15.0)
-        chartsBox.children.addAll(createSalesChart(), createQuantityChart())
-
-        val newsSection = createNewsSection()
-
-        content.children.addAll(header, statsGrid, chartsBox, newsSection)
+        content.children.add(welcomeText)
 
         val scrollPane = ScrollPane(content)
         scrollPane.isFitToWidth = true
@@ -223,192 +226,37 @@ class MainApp : Application() {
         mainContent.children.add(scrollPane)
     }
 
-    private fun createStatsCard(title: String, value: String, color: String): VBox {
-        val card = VBox(5.0)
-        card.style = "-fx-background-color: white; -fx-padding: 12px; -fx-border-color: #dcdcdc; -fx-border-width: 1px;"
-        card.prefWidth = 230.0
-
-        val titleLabel = Label(title)
-        titleLabel.style = "-fx-font-size: 13px; -fx-text-fill: #7f8c8d;"
-
-        val valueLabel = Label(value)
-        valueLabel.style = "-fx-font-size: 14px; -fx-font-weight: bold; -fx-text-fill: $color;"
-
-        card.children.addAll(titleLabel, valueLabel)
-        return card
-    }
-
-    private fun createSummaryCard(): VBox {
-        val card = VBox(8.0)
-        card.style = "-fx-background-color: white; -fx-padding: 12px; -fx-border-color: #dcdcdc; -fx-border-width: 1px;"
-        card.prefWidth = 475.0
-
-        val title = Label("Сводка")
-        title.style = "-fx-font-size: 14px; -fx-font-weight: bold;"
-
-        val grid = GridPane()
-        grid.hgap = 25.0
-        grid.vgap = 5.0
-
-        val items = listOf(
-            "Денег в ТБ:" to "27599 п.",
-            "Сданы в ТБ:" to "12109 п.",
-            "Выручка, сегодня:" to "11950 п.",
-            "Выручка, завтра:" to "11360 п.",
-            "Инвестирование, сегодня:" to "8145 п.",
-            "Инвестирование, завтра:" to "9860 п.",
-            "Обслуживание ТБ, сегодня:" to "2 / 2"
-        )
-
-        items.forEachIndexed { index, (label, value) ->
-            val row = index / 2
-            val col = index % 2
-
-            val labelNode = Label(label)
-            labelNode.style = "-fx-text-fill: #7f8c8d; -fx-font-size: 12px;"
-
-            val valueNode = Label(value)
-            valueNode.style = "-fx-font-weight: bold; -fx-font-size: 12px;"
-
-            val hbox = HBox(5.0)
-            hbox.children.addAll(labelNode, valueNode)
-
-            grid.add(hbox, col, row)
-        }
-
-        card.children.addAll(title, grid)
-        return card
-    }
-
-    private fun createSalesChart(): VBox {
-        val chartBox = VBox(8.0)
-        chartBox.style = "-fx-background-color: white; -fx-padding: 12px; -fx-border-color: #dcdcdc; -fx-border-width: 1px;"
-        chartBox.prefWidth = 380.0
-
-        val title = Label("Динамика продаж за последние 10 дней")
-        title.style = "-fx-font-size: 13px; -fx-font-weight: bold;"
-
-        val subtitle = Label("Данные по предыдущей с 01.03.2025 по 16.03.2025")
-        subtitle.style = "-fx-font-size: 11px; -fx-text-fill: #7f8c8d;"
-
-        val xAxis = CategoryAxis()
-        val yAxis = NumberAxis()
-        yAxis.label = "По сумме"
-
-        val chart = LineChart(xAxis, yAxis)
-        chart.prefHeight = 200.0
-        chart.isLegendVisible = false
-
-        val series = XYChart.Series<String, Number>()
-        series.name = "Продажи"
-
-        val data = listOf(15000, 12000, 14000, 11000, 13000, 10000, 14000, 12000, 15000, 13000)
-        data.forEachIndexed { index, value ->
-            series.data.add(XYChart.Data((index + 1).toString(), value))
-        }
-
-        chart.data.add(series)
-
-        chartBox.children.addAll(title, subtitle, chart)
-        return chartBox
-    }
-
-    private fun createQuantityChart(): VBox {
-        val chartBox = VBox(8.0)
-        chartBox.style = "-fx-background-color: white; -fx-padding: 12px; -fx-border-color: #dcdcdc; -fx-border-width: 1px;"
-        chartBox.prefWidth = 380.0
-
-        val xAxis = CategoryAxis()
-        val yAxis = NumberAxis()
-        yAxis.label = "По количеству"
-
-        val chart = LineChart(xAxis, yAxis)
-        chart.prefHeight = 200.0
-        chart.isLegendVisible = false
-
-        val series = XYChart.Series<String, Number>()
-        series.name = "Количество"
-
-        val data = listOf(5000, 6000, 4500, 7000, 5500, 4800, 6200, 5800, 7100, 4900)
-        data.forEachIndexed { index, value ->
-            series.data.add(XYChart.Data((index + 1).toString(), value))
-        }
-
-        chart.data.add(series)
-
-        chartBox.children.addAll(chart)
-        return chartBox
-    }
-
-    private fun createNewsSection(): VBox {
-        val newsBox = VBox(8.0)
-        newsBox.style = "-fx-background-color: white; -fx-padding: 12px; -fx-border-color: #dcdcdc; -fx-border-width: 1px;"
-
-        val title = Label("Новости")
-        title.style = "-fx-font-size: 14px; -fx-font-weight: bold;"
-
-        val newsItems = listOf(
-            "20.01.25" to "Промышленник КИПик получил дизайнер от компании ...",
-            "21.02.24" to "Восстановление пользователей от KIT landing / KIT Trip",
-            "28.02.24" to "Стоянка ЛДС 35 кв.м ZX для KIT",
-            "04.02.24" to "Регион новый CRM системный KIT Trip",
-            "27.01.24" to "Новый модуль основных автоматов от KIT Landing",
-            "20.01.24" to "Подключение сервисника PCI DSS 4.0.1"
-        )
-
-        newsItems.forEach { (date, text) ->
-            val itemBox = HBox(8.0)
-            itemBox.style = "-fx-padding: 3px;"
-
-            val dateLabel = Label(date)
-            dateLabel.style = "-fx-font-weight: bold; -fx-min-width: 65px; -fx-font-size: 12px;"
-
-            val textLabel = Label(text)
-            textLabel.style = "-fx-font-size: 12px;"
-
-            itemBox.children.addAll(dateLabel, textLabel)
-            newsBox.children.add(itemBox)
-        }
-
-        val allNews = VBox(5.0)
-        allNews.children.addAll(title, newsBox)
-
-        return allNews
-    }
-
     private fun showVendingMachines() {
         currentEntityClass = VendingMachine::class.java
-        currentData = vendingMachineDAO.getAll()
+        currentData = vendingMachineDAO.getAll().sortedBy { it.id }
         setupTableView(VendingMachine::class.java)
     }
 
     private fun showProducts() {
         currentEntityClass = Product::class.java
-        currentData = productDAO.getAll()
+        currentData = productDAO.getAll().sortedBy { it.id }
         setupTableView(Product::class.java)
     }
 
     private fun showSales() {
         currentEntityClass = Sale::class.java
-        currentData = saleDAO.getAll()
+        currentData = saleDAO.getAll().sortedBy { it.id }
         setupTableView(Sale::class.java)
     }
 
     private fun showUsers() {
         currentEntityClass = User::class.java
-        currentData = userDAO.getAll()
+        currentData = userDAO.getAll().sortedBy { it.id }
         setupTableView(User::class.java)
     }
 
     private fun showMaintenance() {
         currentEntityClass = Maintenance::class.java
-        currentData = maintenanceDAO.getAll()
+        currentData = maintenanceDAO.getAll().sortedBy { it.id }
         setupTableView(Maintenance::class.java)
     }
 
     private fun <T : Any> setupTableView(entityClass: Class<T>) {
-        currentPage = 0
-
         val content = VBox(15.0)
         content.padding = Insets(15.0)
         content.style = "-fx-background-color: #ecf0f1;"
@@ -416,7 +264,7 @@ class MainApp : Application() {
         val header = Text("Управление: ${getEntityName(entityClass)}")
         header.font = Font.font("System", FontWeight.BOLD, 16.0)
 
-        // Панель управления таблицей как на картинке
+        // Панель управления таблицей
         val controlBar = createControlBar(entityClass)
 
         // Настройка TableView
@@ -425,7 +273,6 @@ class MainApp : Application() {
         // Инициализация данных с фильтрацией
         val observableData = FXCollections.observableArrayList(currentData)
         filteredData = FilteredList(observableData) { true }
-        tableView.items = filteredData
 
         // Настройка фильтра
         filterField.textProperty().addListener { _, _, newValue ->
@@ -433,28 +280,32 @@ class MainApp : Application() {
                 if (newValue.isNullOrBlank()) return@setPredicate true
                 filterItem(item, newValue)
             }
-            updatePaginationLabel()
+            tableView.items = filteredData
         }
 
         // Стилизация таблицы
         tableView.style = "-fx-font-size: 12px;"
         tableView.columnResizePolicy = TableView.CONSTRAINED_RESIZE_POLICY
-
-        // Контейнер для таблицы с фиксированной высотой
-        val tableContainer = VBox(tableView)
         VBox.setVgrow(tableView, Priority.ALWAYS)
 
-        // Пагинация
-        val paginationBar = createPaginationBar()
+        // Контейнер для таблицы
+        val tableContainer = VBox(tableView)
+        VBox.setVgrow(tableContainer, Priority.ALWAYS)
+        tableContainer.style = "-fx-background-color: white; -fx-border-color: #dcdcdc; -fx-border-width: 1px;"
 
-        content.children.addAll(header, controlBar, tableContainer, paginationBar)
+        content.children.addAll(header, controlBar, tableContainer)
+        VBox.setVgrow(tableContainer, Priority.ALWAYS)
 
         val scrollPane = ScrollPane(content)
         scrollPane.isFitToWidth = true
+        scrollPane.isFitToHeight = true
         scrollPane.style = "-fx-background-color: transparent;"
 
         mainContent.children.clear()
         mainContent.children.add(scrollPane)
+
+        // Устанавливаем данные в таблицу
+        tableView.items = filteredData
     }
 
     private fun <T : Any> setupTableColumns(entityClass: Class<T>) {
@@ -523,7 +374,6 @@ class MainApp : Application() {
 
                 createColumn("Мин. запас", "minimalStock", 80.0)
 
-                // Исправленные колонки с описанием и трендами
                 createColumn("Описание", "description", 150.0) { desc ->
                     val str = desc as? String
                     if (str != null) {
@@ -684,25 +534,9 @@ class MainApp : Application() {
         controlBar.alignment = Pos.CENTER_LEFT
         controlBar.style = "-fx-background-color: white; -fx-border-color: #dcdcdc; -fx-border-width: 1px; -fx-padding: 8px;"
 
-        // Выпадающий список "Показать X записей"
-        val showLabel = Label("Показать:")
-        showLabel.style = "-fx-font-size: 12px;"
-
-        pageSizeComboBox = ComboBox(FXCollections.observableArrayList(15, 25, 50, 100))
-        pageSizeComboBox.value = pageSize
-        pageSizeComboBox.style = "-fx-font-size: 12px; -fx-pref-width: 70px;"
-        pageSizeComboBox.setOnAction {
-            pageSize = pageSizeComboBox.value
-            currentPage = 0
-            updatePaginationLabel()
-        }
-
-        val recordsLabel = Label("записей")
-        recordsLabel.style = "-fx-font-size: 12px;"
-
         // Поле фильтра
         val filterLabel = Label("Фильтр:")
-        filterLabel.style = "-fx-font-size: 12px; -fx-padding: 0 0 0 20;"
+        filterLabel.style = "-fx-font-size: 12px;"
 
         filterField = TextField()
         filterField.style = "-fx-font-size: 12px; -fx-pref-width: 200px;"
@@ -721,7 +555,6 @@ class MainApp : Application() {
         HBox.setHgrow(spacer, Priority.ALWAYS)
 
         controlBar.children.addAll(
-            showLabel, pageSizeComboBox, recordsLabel,
             filterLabel, filterField,
             spacer,
             addButton, exportButton
@@ -771,364 +604,414 @@ class MainApp : Application() {
         alert.showAndWait()
     }
 
-    private fun createPaginationBar(): HBox {
-        val paginationBar = HBox(8.0)
-        paginationBar.alignment = Pos.CENTER
-        paginationBar.style = "-fx-padding: 10 0;"
-
-        val prevButton = Button("◀ Предыдущая")
-        prevButton.style = "-fx-background-color: #34495e; -fx-text-fill: white; -fx-padding: 5 10; -fx-background-radius: 3; -fx-font-size: 12px;"
-        prevButton.setOnAction {
-            if (currentPage > 0) {
-                currentPage--
-                updatePaginationLabel()
-            }
-        }
-
-        val nextButton = Button("Следующая ▶")
-        nextButton.style = "-fx-background-color: #34495e; -fx-text-fill: white; -fx-padding: 5 10; -fx-background-radius: 3; -fx-font-size: 12px;"
-        nextButton.setOnAction {
-            if ((currentPage + 1) * pageSize < filteredData.size) {
-                currentPage++
-                updatePaginationLabel()
-            }
-        }
-
-        paginationLabel = Label()
-        paginationLabel.style = "-fx-font-weight: bold; -fx-font-size: 12px; -fx-padding: 0 10;"
-
-        updatePaginationLabel()
-
-        paginationBar.children.addAll(prevButton, paginationLabel, nextButton)
-
-        return paginationBar
-    }
-
-    private fun updatePaginationLabel() {
-        val totalPages = maxOf(1, (filteredData.size + pageSize - 1) / pageSize)
-        paginationLabel.text = "Страница ${currentPage + 1} из $totalPages"
-
-        // Обновляем отображаемые данные
-        val start = currentPage * pageSize
-        val end = minOf(start + pageSize, filteredData.size)
-
-        // Создаем подсписок для текущей страницы
-        val pageItems = FXCollections.observableArrayList<Any>()
-        for (i in start until end) {
-            pageItems.add(filteredData[i])
-        }
-        tableView.items = pageItems
-    }
-
     private fun showAddDialog(entityClass: Class<*>) {
-        val dialog = Dialog<Any>()
-        dialog.title = "Добавить запись"
-        dialog.headerText = "Создание новой записи: ${getEntityShortName(entityClass)}"
 
-        val dialogPane = dialog.dialogPane
-        dialogPane.buttonTypes.addAll(ButtonType.OK, ButtonType.CANCEL)
-        dialogPane.style = "-fx-background-color: white;"
+        val stage = Stage()
+        stage.title = "Добавить запись"
+        stage.initModality(Modality.APPLICATION_MODAL)
 
         val grid = GridPane()
         grid.hgap = 10.0
         grid.vgap = 8.0
         grid.padding = Insets(15.0)
 
-        val fields = mutableListOf<TextField>()
+        data class FieldMeta(
+            val field: TextField,
+            val required: Boolean,
+            val type: String?
+        )
+
+        val fields = mutableListOf<FieldMeta>()
         var row = 0
 
+        fun addField(
+            labelText: String,
+            required: Boolean = false,
+            type: String? = null,
+            example: String = ""
+        ) {
+            val label = Label(labelText)
+            if (required) label.style = "-fx-font-weight: bold;"
+            val tf = TextField()
+            tf.promptText = example
+            grid.add(label, 0, row)
+            grid.add(tf, 1, row++)
+            fields.add(FieldMeta(tf, required, type))
+        }
+
         when (entityClass) {
+
             VendingMachine::class.java -> {
-                addTextField(grid, "Название*:", row++, fields, true)
-                addTextField(grid, "Модель:", row++, fields)
-                addTextField(grid, "Компания:", row++, fields)
-                addTextField(grid, "Модем:", row++, fields)
-                addTextField(grid, "Адрес:", row++, fields)
-                addTextField(grid, "Место:", row++, fields)
-                addTextField(grid, "Дата установки (ГГГГ-ММ-ДД):", row++, fields)
+                addField("Название*", true, null, "Кофейный автомат №1")
+                addField("Модель", false, null, "Saeco 400")
+                addField("Компания", false, null, "ООО ТА")
+                addField("Модем", false, null, "1824100025")
+                addField("Адрес", false, null, "ул. Ленина, 10")
+                addField("Место", false, null, "1 этаж")
+                addField("Дата установки", false, "date", "2024-01-15")
             }
+
             Product::class.java -> {
-                addTextField(grid, "Название*:", row++, fields, true)
-                addTextField(grid, "Цена*:", row++, fields, true)
-                addTextField(grid, "Количество*:", row++, fields, true)
-                addTextField(grid, "Мин. запас*:", row++, fields, true)
-                addTextField(grid, "Описание:", row++, fields)
-                addTextField(grid, "Тренды продаж:", row++, fields)
+                addField("Название*", true, null, "Кофе Латте")
+                addField("Цена*", true, "decimal", "150.00")
+                addField("Количество*", true, "int", "50")
+                addField("Мин. запас*", true, "int", "10")
+                addField("Описание", false, null, "Классический кофе")
+                addField("Тренды", false, null, "Высокий спрос")
             }
+
             User::class.java -> {
-                addTextField(grid, "Имя*:", row++, fields, true)
-                addTextField(grid, "Фамилия*:", row++, fields, true)
-                addTextField(grid, "Отчество:", row++, fields)
-                addTextField(grid, "Email:", row++, fields)
-                addTextField(grid, "Телефон:", row++, fields)
-                addTextField(grid, "Роль ID*:", row++, fields, true)
-                addTextField(grid, "Пароль (hash)*:", row++, fields, true)
+                addField("Имя*", true)
+                addField("Фамилия*", true)
+                addField("Отчество")
+                addField("Email")
+                addField("Телефон")
+                addField("Role ID*", true, "int", "1")
+                addField("Пароль*", true)
             }
+
             Sale::class.java -> {
-                addTextField(grid, "Устройство ID*:", row++, fields, true)
-                addTextField(grid, "Продукт ID*:", row++, fields, true)
-                addTextField(grid, "Количество*:", row++, fields, true)
-                addTextField(grid, "Сумма*:", row++, fields, true)
-                addTextField(grid, "Дата и время (ГГГГ-ММ-ДДTЧЧ:ММ:СС):", row++, fields)
-                addTextField(grid, "Метод оплаты:", row++, fields)
+                addField("Device ID*", true, "int", "1")
+                addField("Product ID*", true, "int", "2")
+                addField("Количество*", true, "int", "3")
+                addField("Сумма*", true, "decimal", "450.00")
+                addField("Дата", false, "datetime", "2024-03-20T10:30:00")
+                addField("Оплата")
             }
+
             Maintenance::class.java -> {
-                addTextField(grid, "Устройство ID*:", row++, fields, true)
-                addTextField(grid, "Дата (ГГГГ-ММ-ДД):", row++, fields)
-                addTextField(grid, "Описание:", row++, fields)
-                addTextField(grid, "Исполнитель ID:", row++, fields)
+                addField("Device ID*", true, "int", "1")
+                addField("Дата", false, "date", "2024-03-20")
+                addField("Описание")
+                addField("Исполнитель ID", false, "int", "3")
             }
         }
 
-        dialogPane.content = grid
+        val saveButton = Button("Сохранить")
+        saveButton.isDisable = true
 
-        dialog.setResultConverter { buttonType ->
-            if (buttonType == ButtonType.OK) {
-                try {
-                    when (entityClass) {
-                        VendingMachine::class.java -> {
-                            if (fields[0].text.isBlank()) throw Exception("Название обязательно")
-                            VendingMachine().apply {
-                                name = fields[0].text
-                                model = fields[1].text.ifEmpty { null }
-                                company = fields[2].text.ifEmpty { null }
-                                modem = fields[3].text.ifEmpty { null }
-                                address = fields[4].text.ifEmpty { null }
-                                location = fields[5].text.ifEmpty { null }
-                                installationDate = try {
-                                    if (fields[6].text.isNotBlank()) LocalDate.parse(fields[6].text) else null
-                                } catch (e: Exception) { null }
-                            }.also { vendingMachineDAO.save(it) }
-                        }
-                        Product::class.java -> {
-                            if (fields[0].text.isBlank()) throw Exception("Название обязательно")
-                            Product().apply {
-                                name = fields[0].text
-                                price = fields[1].text.toBigDecimalOrNull() ?: throw Exception("Некорректная цена")
-                                quantityInStock = fields[2].text.toIntOrNull() ?: throw Exception("Некорректное количество")
-                                minimalStock = fields[3].text.toIntOrNull() ?: throw Exception("Некорректный мин. запас")
-                                description = fields[4].text.ifEmpty { null }
-                                salesTrends = fields[5].text.ifEmpty { null }
-                            }.also { productDAO.save(it) }
-                        }
-                        User::class.java -> {
-                            if (fields[0].text.isBlank()) throw Exception("Имя обязательно")
-                            if (fields[1].text.isBlank()) throw Exception("Фамилия обязательна")
-                            User().apply {
-                                firstName = fields[0].text
-                                lastName = fields[1].text
-                                patronymic = fields[2].text.ifEmpty { null }
-                                email = fields[3].text.ifEmpty { null }
-                                phone = fields[4].text.ifEmpty { null }
-                                roleId = fields[5].text.toIntOrNull() ?: throw Exception("Некорректный ID роли")
-                                passwordHash = fields[6].text.ifBlank { throw Exception("Пароль обязателен") }
-                                createdAt = LocalDateTime.now()
-                            }.also { userDAO.save(it) }
-                        }
-                        Sale::class.java -> {
-                            Sale().apply {
-                                deviceId = fields[0].text.toIntOrNull() ?: throw Exception("Некорректный ID устройства")
-                                productId = fields[1].text.toIntOrNull() ?: throw Exception("Некорректный ID продукта")
-                                quantitySold = fields[2].text.toIntOrNull() ?: throw Exception("Некорректное количество")
-                                totalAmount = fields[3].text.toBigDecimalOrNull() ?: throw Exception("Некорректная сумма")
-                                saleDatetime = try {
-                                    if (fields[4].text.isNotBlank()) LocalDateTime.parse(fields[4].text) else LocalDateTime.now()
-                                } catch (e: Exception) { LocalDateTime.now() }
-                                paymentMethod = fields[5].text.ifEmpty { null }
-                            }.also { saleDAO.save(it) }
-                        }
-                        Maintenance::class.java -> {
-                            Maintenance().apply {
-                                deviceId = fields[0].text.toIntOrNull() ?: throw Exception("Некорректный ID устройства")
-                                serviceDate = try {
-                                    if (fields[1].text.isNotBlank()) LocalDate.parse(fields[1].text) else LocalDate.now()
-                                } catch (e: Exception) { LocalDate.now() }
-                                description = fields[2].text.ifEmpty { null }
-                                performedBy = fields[3].text.toIntOrNull()
-                            }.also { maintenanceDAO.save(it) }
-                        }
-                        else -> null
+        val cancelButton = Button("Отмена")
+
+        fun validateAll(): Boolean =
+            fields.all { validateField(it.field, it.required, it.type) }
+
+        fields.forEach {
+            it.field.textProperty().addListener { _, _, _ ->
+                saveButton.isDisable = !validateAll()
+            }
+        }
+
+        saveButton.setOnAction {
+            try {
+
+                when (entityClass) {
+
+                    VendingMachine::class.java -> {
+                        vendingMachineDAO.save(
+                            VendingMachine(
+                                name = fields[0].field.text,
+                                model = fields[1].field.text.ifBlank { null },
+                                company = fields[2].field.text.ifBlank { null },
+                                modem = fields[3].field.text.ifBlank { null },
+                                address = fields[4].field.text.ifBlank { null },
+                                location = fields[5].field.text.ifBlank { null },
+                                installationDate = fields[6].field.text
+                                    .takeIf { it.isNotBlank() }?.let { LocalDate.parse(it) }
+                            )
+                        )
                     }
-                } catch (e: Exception) {
-                    showAlert("Ошибка", "Не удалось сохранить: ${e.message}")
-                    null
+
+                    Product::class.java -> {
+                        productDAO.save(
+                            Product(
+                                name = fields[0].field.text,
+                                price = fields[1].field.text.toBigDecimal(),
+                                quantityInStock = fields[2].field.text.toInt(),
+                                minimalStock = fields[3].field.text.toInt(),
+                                description = fields[4].field.text.ifBlank { null },
+                                salesTrends = fields[5].field.text.ifBlank { null }
+                            )
+                        )
+                    }
+
+                    User::class.java -> {
+                        userDAO.save(
+                            User(
+                                firstName = fields[0].field.text,
+                                lastName = fields[1].field.text,
+                                patronymic = fields[2].field.text.ifBlank { null },
+                                email = fields[3].field.text.ifBlank { null },
+                                phone = fields[4].field.text.ifBlank { null },
+                                roleId = fields[5].field.text.toInt(),
+                                passwordHash = fields[6].field.text
+                            )
+                        )
+                    }
+
+                    Sale::class.java -> {
+                        saleDAO.save(
+                            Sale(
+                                deviceId = fields[0].field.text.toInt(),
+                                productId = fields[1].field.text.toInt(),
+                                quantitySold = fields[2].field.text.toInt(),
+                                totalAmount = fields[3].field.text.toBigDecimal(),
+                                saleDatetime = fields[4].field.text
+                                    .takeIf { it.isNotBlank() }
+                                    ?.let { LocalDateTime.parse(it) }
+                                    ?: LocalDateTime.now(),
+                                paymentMethod = fields[5].field.text.ifBlank { null }
+                            )
+                        )
+                    }
+
+                    Maintenance::class.java -> {
+                        maintenanceDAO.save(
+                            Maintenance(
+                                deviceId = fields[0].field.text.toInt(),
+                                serviceDate = fields[1].field.text
+                                    .takeIf { it.isNotBlank() }
+                                    ?.let { LocalDate.parse(it) }
+                                    ?: LocalDate.now(),
+                                description = fields[2].field.text.ifBlank { null },
+                                performedBy = fields[3].field.text.toIntOrNull()
+                            )
+                        )
+                    }
                 }
-            } else null
+
+                stage.close()
+                refreshCurrentTable()
+
+            } catch (e: Exception) {
+                showAlert("Ошибка", e.message ?: "Ошибка сохранения")
+            }
         }
 
-        val result = dialog.showAndWait()
-        result.ifPresent {
-            refreshCurrentTable()
-        }
-    }
+        cancelButton.setOnAction { stage.close() }
 
-    private fun addTextField(grid: GridPane, label: String, row: Int, fields: MutableList<TextField>, required: Boolean = false) {
-        val labelText = if (required) Label("$label") else Label(label)
-        labelText.style = if (required) "-fx-font-weight: bold; -fx-font-size: 12px;" else "-fx-font-size: 12px;"
-        grid.add(labelText, 0, row)
-        val textField = TextField()
-        textField.style = "-fx-font-size: 12px;"
-        if (required) {
-            textField.promptText = "Обязательное поле"
-        }
-        grid.add(textField, 1, row)
-        fields.add(textField)
+        val buttons = HBox(10.0, saveButton, cancelButton)
+        buttons.alignment = Pos.CENTER_RIGHT
+        buttons.padding = Insets(10.0)
+
+        val root = VBox(10.0, grid, buttons)
+        root.padding = Insets(10.0)
+
+        stage.scene = Scene(root)
+        stage.showAndWait()
     }
 
     private fun showEditDialog(item: Any) {
-        val dialog = Dialog<Any>()
-        dialog.title = "Редактировать запись"
-        dialog.headerText = "Изменение: ${getEntityShortName(item::class.java)} (ID: ${getIdValue(item)})"
 
-        val dialogPane = dialog.dialogPane
-        dialogPane.buttonTypes.addAll(ButtonType.OK, ButtonType.CANCEL)
-        dialogPane.style = "-fx-background-color: white;"
+        val stage = Stage()
+        stage.title = "Редактировать запись"
+        stage.initModality(Modality.APPLICATION_MODAL)
 
         val grid = GridPane()
         grid.hgap = 10.0
         grid.vgap = 8.0
         grid.padding = Insets(15.0)
 
-        val fields = mutableListOf<TextField>()
+        data class FieldMeta(
+            val field: TextField,
+            val required: Boolean,
+            val type: String?
+        )
+
+        val fields = mutableListOf<FieldMeta>()
         var row = 0
 
+        fun addField(
+            labelText: String,
+            value: String,
+            required: Boolean = false,
+            type: String? = null,
+            example: String = ""
+        ) {
+            val label = Label(labelText)
+            if (required) label.style = "-fx-font-weight: bold;"
+
+            val tf = TextField(value)
+            tf.promptText = example
+
+            grid.add(label, 0, row)
+            grid.add(tf, 1, row++)
+            fields.add(FieldMeta(tf, required, type))
+        }
+
         when (item) {
+
             is VendingMachine -> {
-                addTextFieldWithValue(grid, "Название*:", row++, item.name, fields, true)
-                addTextFieldWithValue(grid, "Модель:", row++, item.model ?: "", fields)
-                addTextFieldWithValue(grid, "Компания:", row++, item.company ?: "", fields)
-                addTextFieldWithValue(grid, "Модем:", row++, item.modem ?: "", fields)
-                addTextFieldWithValue(grid, "Адрес:", row++, item.address ?: "", fields)
-                addTextFieldWithValue(grid, "Место:", row++, item.location ?: "", fields)
-                addTextFieldWithValue(grid, "Дата установки (ГГГГ-ММ-ДД):", row++, item.installationDate?.toString() ?: "", fields)
+                addField("Название*", item.name, true)
+                addField("Модель", item.model ?: "", false, null, "Saeco 400")
+                addField("Компания", item.company ?: "")
+                addField("Модем", item.modem ?: "")
+                addField("Адрес", item.address ?: "")
+                addField("Место", item.location ?: "")
+                addField(
+                    "Дата установки",
+                    item.installationDate?.toString() ?: "",
+                    false,
+                    "date",
+                    "2024-01-15"
+                )
             }
+
             is Product -> {
-                addTextFieldWithValue(grid, "Название*:", row++, item.name, fields, true)
-                addTextFieldWithValue(grid, "Цена*:", row++, item.price.toString(), fields, true)
-                addTextFieldWithValue(grid, "Количество*:", row++, item.quantityInStock.toString(), fields, true)
-                addTextFieldWithValue(grid, "Мин. запас*:", row++, item.minimalStock.toString(), fields, true)
-                addTextFieldWithValue(grid, "Описание:", row++, item.description ?: "", fields)
-                addTextFieldWithValue(grid, "Тренды продаж:", row++, item.salesTrends ?: "", fields)
+                addField("Название*", item.name, true)
+                addField("Цена*", item.price.toString(), true, "decimal", "150.00")
+                addField("Количество*", item.quantityInStock.toString(), true, "int", "50")
+                addField("Мин. запас*", item.minimalStock.toString(), true, "int", "10")
+                addField("Описание", item.description ?: "")
+                addField("Тренды", item.salesTrends ?: "")
             }
+
             is User -> {
-                addTextFieldWithValue(grid, "Имя*:", row++, item.firstName, fields, true)
-                addTextFieldWithValue(grid, "Фамилия*:", row++, item.lastName, fields, true)
-                addTextFieldWithValue(grid, "Отчество:", row++, item.patronymic ?: "", fields)
-                addTextFieldWithValue(grid, "Email:", row++, item.email ?: "", fields)
-                addTextFieldWithValue(grid, "Телефон:", row++, item.phone ?: "", fields)
-                addTextFieldWithValue(grid, "Роль ID*:", row++, item.roleId.toString(), fields, true)
-                addTextFieldWithValue(grid, "Пароль (hash):", row++, item.passwordHash, fields)
+                addField("Имя*", item.firstName, true)
+                addField("Фамилия*", item.lastName, true)
+                addField("Отчество", item.patronymic ?: "")
+                addField("Email", item.email ?: "")
+                addField("Телефон", item.phone ?: "")
+                addField("Role ID*", item.roleId.toString(), true, "int", "1")
             }
+
             is Sale -> {
-                addTextFieldWithValue(grid, "Устройство ID*:", row++, item.deviceId.toString(), fields, true)
-                addTextFieldWithValue(grid, "Продукт ID*:", row++, item.productId.toString(), fields, true)
-                addTextFieldWithValue(grid, "Количество*:", row++, item.quantitySold.toString(), fields, true)
-                addTextFieldWithValue(grid, "Сумма*:", row++, item.totalAmount.toString(), fields, true)
-                addTextFieldWithValue(grid, "Дата и время (ГГГГ-ММ-ДДTЧЧ:ММ:СС):", row++, item.saleDatetime.toString(), fields)
-                addTextFieldWithValue(grid, "Метод оплаты:", row++, item.paymentMethod ?: "", fields)
+                addField("Device ID*", item.deviceId.toString(), true, "int")
+                addField("Product ID*", item.productId.toString(), true, "int")
+                addField("Количество*", item.quantitySold.toString(), true, "int")
+                addField("Сумма*", item.totalAmount.toString(), true, "decimal")
+                addField(
+                    "Дата",
+                    item.saleDatetime.toString(),
+                    false,
+                    "datetime",
+                    "2024-03-20T10:30:00"
+                )
+                addField("Метод оплаты", item.paymentMethod ?: "")
             }
+
             is Maintenance -> {
-                addTextFieldWithValue(grid, "Устройство ID*:", row++, item.deviceId.toString(), fields, true)
-                addTextFieldWithValue(grid, "Дата (ГГГГ-ММ-ДД):", row++, item.serviceDate.toString(), fields)
-                addTextFieldWithValue(grid, "Описание:", row++, item.description ?: "", fields)
-                addTextFieldWithValue(grid, "Исполнитель ID:", row++, item.performedBy?.toString() ?: "", fields)
+                addField("Device ID*", item.deviceId.toString(), true, "int")
+                addField(
+                    "Дата",
+                    item.serviceDate.toString(),
+                    false,
+                    "date",
+                    "2024-03-20"
+                )
+                addField("Описание", item.description ?: "")
+                addField(
+                    "Исполнитель ID",
+                    item.performedBy?.toString() ?: "",
+                    false,
+                    "int",
+                    "3"
+                )
             }
         }
 
-        dialogPane.content = grid
+        val saveButton = Button("Сохранить")
+        saveButton.isDisable = true
 
-        dialog.setResultConverter { buttonType ->
-            if (buttonType == ButtonType.OK) {
-                try {
-                    when (item) {
-                        is VendingMachine -> {
-                            if (fields[0].text.isBlank()) throw Exception("Название обязательно")
-                            item.apply {
-                                name = fields[0].text
-                                model = fields[1].text.ifEmpty { null }
-                                company = fields[2].text.ifEmpty { null }
-                                modem = fields[3].text.ifEmpty { null }
-                                address = fields[4].text.ifEmpty { null }
-                                location = fields[5].text.ifEmpty { null }
-                                installationDate = try {
-                                    if (fields[6].text.isNotBlank()) LocalDate.parse(fields[6].text) else null
-                                } catch (e: Exception) { null }
-                            }.also { vendingMachineDAO.update(it) }
-                        }
-                        is Product -> {
-                            if (fields[0].text.isBlank()) throw Exception("Название обязательно")
-                            item.apply {
-                                name = fields[0].text
-                                price = fields[1].text.toBigDecimalOrNull() ?: throw Exception("Некорректная цена")
-                                quantityInStock = fields[2].text.toIntOrNull() ?: throw Exception("Некорректное количество")
-                                minimalStock = fields[3].text.toIntOrNull() ?: throw Exception("Некорректный мин. запас")
-                                description = fields[4].text.ifEmpty { null }
-                                salesTrends = fields[5].text.ifEmpty { null }
-                            }.also { productDAO.update(it) }
-                        }
-                        is User -> {
-                            if (fields[0].text.isBlank()) throw Exception("Имя обязательно")
-                            if (fields[1].text.isBlank()) throw Exception("Фамилия обязательна")
-                            item.apply {
-                                firstName = fields[0].text
-                                lastName = fields[1].text
-                                patronymic = fields[2].text.ifEmpty { null }
-                                email = fields[3].text.ifEmpty { null }
-                                phone = fields[4].text.ifEmpty { null }
-                                roleId = fields[5].text.toIntOrNull() ?: throw Exception("Некорректный ID роли")
-                                if (fields[6].text.isNotBlank()) {
-                                    passwordHash = fields[6].text
-                                }
-                            }.also { userDAO.update(it) }
-                        }
-                        is Sale -> {
-                            item.apply {
-                                deviceId = fields[0].text.toIntOrNull() ?: throw Exception("Некорректный ID устройства")
-                                productId = fields[1].text.toIntOrNull() ?: throw Exception("Некорректный ID продукта")
-                                quantitySold = fields[2].text.toIntOrNull() ?: throw Exception("Некорректное количество")
-                                totalAmount = fields[3].text.toBigDecimalOrNull() ?: throw Exception("Некорректная сумма")
-                                saleDatetime = try {
-                                    if (fields[4].text.isNotBlank()) LocalDateTime.parse(fields[4].text) else LocalDateTime.now()
-                                } catch (e: Exception) { LocalDateTime.now() }
-                                paymentMethod = fields[5].text.ifEmpty { null }
-                            }.also { saleDAO.update(it) }
-                        }
-                        is Maintenance -> {
-                            item.apply {
-                                deviceId = fields[0].text.toIntOrNull() ?: throw Exception("Некорректный ID устройства")
-                                serviceDate = try {
-                                    if (fields[1].text.isNotBlank()) LocalDate.parse(fields[1].text) else LocalDate.now()
-                                } catch (e: Exception) { LocalDate.now() }
-                                description = fields[2].text.ifEmpty { null }
-                                performedBy = fields[3].text.toIntOrNull()
-                            }.also { maintenanceDAO.update(it) }
-                        }
-                        else -> null
+        val cancelButton = Button("Отмена")
+
+        fun validateAll(): Boolean =
+            fields.all { validateField(it.field, it.required, it.type) }
+
+        fields.forEach {
+            it.field.textProperty().addListener { _, _, _ ->
+                saveButton.isDisable = !validateAll()
+            }
+        }
+
+        saveButton.isDisable = !validateAll()
+
+        saveButton.setOnAction {
+            try {
+
+                when (item) {
+
+                    is VendingMachine -> {
+                        item.name = fields[0].field.text
+                        item.model = fields[1].field.text.ifBlank { null }
+                        item.company = fields[2].field.text.ifBlank { null }
+                        item.modem = fields[3].field.text.ifBlank { null }
+                        item.address = fields[4].field.text.ifBlank { null }
+                        item.location = fields[5].field.text.ifBlank { null }
+                        item.installationDate = fields[6].field.text
+                            .takeIf { it.isNotBlank() }
+                            ?.let { LocalDate.parse(it) }
+
+                        vendingMachineDAO.update(item)
                     }
-                } catch (e: Exception) {
-                    showAlert("Ошибка", "Не удалось обновить: ${e.message}")
-                    null
+
+                    is Product -> {
+                        item.name = fields[0].field.text
+                        item.price = fields[1].field.text.toBigDecimal()
+                        item.quantityInStock = fields[2].field.text.toInt()
+                        item.minimalStock = fields[3].field.text.toInt()
+                        item.description = fields[4].field.text.ifBlank { null }
+                        item.salesTrends = fields[5].field.text.ifBlank { null }
+
+                        productDAO.update(item)
+                    }
+
+                    is User -> {
+                        item.firstName = fields[0].field.text
+                        item.lastName = fields[1].field.text
+                        item.patronymic = fields[2].field.text.ifBlank { null }
+                        item.email = fields[3].field.text.ifBlank { null }
+                        item.phone = fields[4].field.text.ifBlank { null }
+                        item.roleId = fields[5].field.text.toInt()
+
+                        userDAO.update(item)
+                    }
+
+                    is Sale -> {
+                        item.deviceId = fields[0].field.text.toInt()
+                        item.productId = fields[1].field.text.toInt()
+                        item.quantitySold = fields[2].field.text.toInt()
+                        item.totalAmount = fields[3].field.text.toBigDecimal()
+                        item.saleDatetime = fields[4].field.text
+                            .takeIf { it.isNotBlank() }
+                            ?.let { LocalDateTime.parse(it) }
+                            ?: item.saleDatetime
+                        item.paymentMethod = fields[5].field.text.ifBlank { null }
+
+                        saleDAO.update(item)
+                    }
+
+                    is Maintenance -> {
+                        item.deviceId = fields[0].field.text.toInt()
+                        item.serviceDate = fields[1].field.text
+                            .takeIf { it.isNotBlank() }
+                            ?.let { LocalDate.parse(it) }
+                            ?: item.serviceDate
+                        item.description = fields[2].field.text.ifBlank { null }
+                        item.performedBy = fields[3].field.text.toIntOrNull()
+
+                        maintenanceDAO.update(item)
+                    }
                 }
-            } else null
+
+                stage.close()
+                refreshCurrentTable()
+
+            } catch (e: Exception) {
+                showAlert("Ошибка", e.message ?: "Ошибка обновления")
+            }
         }
 
-        val result = dialog.showAndWait()
-        result.ifPresent {
-            refreshCurrentTable()
-        }
-    }
+        cancelButton.setOnAction { stage.close() }
 
-    private fun addTextFieldWithValue(grid: GridPane, label: String, row: Int, value: String, fields: MutableList<TextField>, required: Boolean = false) {
-        val labelText = if (required) Label("$label") else Label(label)
-        labelText.style = if (required) "-fx-font-weight: bold; -fx-font-size: 12px;" else "-fx-font-size: 12px;"
-        grid.add(labelText, 0, row)
-        val textField = TextField(value)
-        textField.style = "-fx-font-size: 12px;"
-        if (required) {
-            textField.promptText = "Обязательное поле"
-        }
-        grid.add(textField, 1, row)
-        fields.add(textField)
+        val buttons = HBox(10.0, saveButton, cancelButton)
+        buttons.alignment = Pos.CENTER_RIGHT
+        buttons.padding = Insets(10.0)
+
+        val root = VBox(10.0, grid, buttons)
+        root.padding = Insets(10.0)
+
+        stage.scene = Scene(root)
+        stage.showAndWait()
     }
 
     private fun getEntityName(entityClass: Class<*>): String {
@@ -1168,8 +1051,23 @@ class MainApp : Application() {
         alert.headerText = "Вы уверены, что хотите удалить эту запись?"
         alert.contentText = "${getEntityShortName(item::class.java)} (ID: ${getIdValue(item)})"
 
+        alert.dialogPane.buttonTypes.clear()
+
+        val deleteButton = ButtonType("Удалить запись", ButtonBar.ButtonData.OK_DONE)
+        val cancelButton = ButtonType("Отмена", ButtonBar.ButtonData.CANCEL_CLOSE)
+
+        alert.dialogPane.buttonTypes.addAll(deleteButton, cancelButton)
+
+        alert.dialogPane.lookupButton(deleteButton)?.let { button ->
+            button.style = "-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-weight: bold; -fx-padding: 8 15; -fx-background-radius: 3;"
+        }
+
+        alert.dialogPane.lookupButton(cancelButton)?.let { button ->
+            button.style = "-fx-background-color: #7f8c8d; -fx-text-fill: white; -fx-padding: 8 15; -fx-background-radius: 3;"
+        }
+
         val result = alert.showAndWait()
-        if (result.isPresent && result.get() == ButtonType.OK) {
+        if (result.isPresent && result.get() == deleteButton) {
             try {
                 when (item) {
                     is VendingMachine -> vendingMachineDAO.delete(item.id)
@@ -1188,29 +1086,34 @@ class MainApp : Application() {
     private fun refreshCurrentTable() {
         when (currentEntityClass) {
             VendingMachine::class.java -> {
-                currentData = vendingMachineDAO.getAll()
-                filteredData = FilteredList(FXCollections.observableArrayList(currentData)) { true }
-                showVendingMachines()
+                currentData = vendingMachineDAO.getAll().sortedBy { it.id }
+                val observableData = FXCollections.observableArrayList(currentData)
+                filteredData = FilteredList(observableData) { true }
+                tableView.items = filteredData
             }
             Product::class.java -> {
-                currentData = productDAO.getAll()
-                filteredData = FilteredList(FXCollections.observableArrayList(currentData)) { true }
-                showProducts()
+                currentData = productDAO.getAll().sortedBy { it.id }
+                val observableData = FXCollections.observableArrayList(currentData)
+                filteredData = FilteredList(observableData) { true }
+                tableView.items = filteredData
             }
             Sale::class.java -> {
-                currentData = saleDAO.getAll()
-                filteredData = FilteredList(FXCollections.observableArrayList(currentData)) { true }
-                showSales()
+                currentData = saleDAO.getAll().sortedBy { it.id }
+                val observableData = FXCollections.observableArrayList(currentData)
+                filteredData = FilteredList(observableData) { true }
+                tableView.items = filteredData
             }
             User::class.java -> {
-                currentData = userDAO.getAll()
-                filteredData = FilteredList(FXCollections.observableArrayList(currentData)) { true }
-                showUsers()
+                currentData = userDAO.getAll().sortedBy { it.id }
+                val observableData = FXCollections.observableArrayList(currentData)
+                filteredData = FilteredList(observableData) { true }
+                tableView.items = filteredData
             }
             Maintenance::class.java -> {
-                currentData = maintenanceDAO.getAll()
-                filteredData = FilteredList(FXCollections.observableArrayList(currentData)) { true }
-                showMaintenance()
+                currentData = maintenanceDAO.getAll().sortedBy { it.id }
+                val observableData = FXCollections.observableArrayList(currentData)
+                filteredData = FilteredList(observableData) { true }
+                tableView.items = filteredData
             }
         }
     }
