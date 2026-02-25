@@ -2,7 +2,6 @@ package com.example.project_vending_machines.dao
 
 import com.example.project_vending_machines.HibernateUtil
 import com.example.project_vending_machines.entity.User
-import org.hibernate.Session
 import org.hibernate.Transaction
 
 class UserDAO {
@@ -14,7 +13,7 @@ class UserDAO {
         return users
     }
 
-    fun getById(id: Long): User? {
+    fun getById(id: Int?): User? {
         val session = HibernateUtil.sessionFactory.openSession()
         val user = session.get(User::class.java, id)
         session.close()

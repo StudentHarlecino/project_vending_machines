@@ -35,6 +35,11 @@ import javafx.beans.value.ChangeListener
 import javafx.beans.value.ObservableValue
 import javafx.stage.Modality
 import java.time.format.DateTimeParseException
+import java.io.File
+import javafx.stage.FileChooser
+import java.nio.charset.Charset
+import java.nio.file.Files
+import java.nio.file.Paths
 
 class MainApp : Application() {
 
@@ -46,6 +51,8 @@ class MainApp : Application() {
     private val roleDAO = RoleDAO()
 
     private val mainContent = StackPane()
+    private var currentPage = 0
+    private var pageSize = 10
     private var currentData: List<Any> = listOf()
     private var currentEntityClass: Class<*>? = null
     private val tableView = TableView<Any>()
@@ -53,6 +60,11 @@ class MainApp : Application() {
     // Для фильтрации
     private lateinit var filteredData: FilteredList<Any>
     private lateinit var filterField: TextField
+    private lateinit var pageSizeComboBox: ComboBox<Int>
+    private lateinit var paginationLabel: Label
+    private lateinit var recordsInfoLabel: Label
+    private lateinit var prevButton: Button
+    private lateinit var nextButton: Button
 
     override fun start(primaryStage: Stage) {
         primaryStage.title = "ООО Торговые Автоматы - Личный кабинет"
@@ -257,6 +269,8 @@ class MainApp : Application() {
     }
 
     private fun <T : Any> setupTableView(entityClass: Class<T>) {
+        currentPage = 0
+
         val content = VBox(15.0)
         content.padding = Insets(15.0)
         content.style = "-fx-background-color: #ecf0f1;"
@@ -280,12 +294,33 @@ class MainApp : Application() {
                 if (newValue.isNullOrBlank()) return@setPredicate true
                 filterItem(item, newValue)
             }
-            tableView.items = filteredData
+            currentPage = 0
+            updatePagination()
         }
 
         // Стилизация таблицы
         tableView.style = "-fx-font-size: 12px;"
         tableView.columnResizePolicy = TableView.CONSTRAINED_RESIZE_POLICY
+
+        // Выделение цветом нечетных строк
+        tableView.setRowFactory { tv ->
+            object : TableRow<Any>() {
+                override fun updateItem(item: Any?, empty: Boolean) {
+                    super.updateItem(item, empty)
+                    if (!empty && item != null) {
+                        // Выделяем нечетные строки
+                        if (index % 2 == 1) {
+                            style = "-fx-background-color: #f0f0f0;"
+                        } else {
+                            style = ""
+                        }
+                    } else {
+                        style = ""
+                    }
+                }
+            }
+        }
+
         VBox.setVgrow(tableView, Priority.ALWAYS)
 
         // Контейнер для таблицы
@@ -293,7 +328,10 @@ class MainApp : Application() {
         VBox.setVgrow(tableContainer, Priority.ALWAYS)
         tableContainer.style = "-fx-background-color: white; -fx-border-color: #dcdcdc; -fx-border-width: 1px;"
 
-        content.children.addAll(header, controlBar, tableContainer)
+        // Пагинация
+        val paginationBar = createPaginationBar()
+
+        content.children.addAll(header, controlBar, tableContainer, paginationBar)
         VBox.setVgrow(tableContainer, Priority.ALWAYS)
 
         val scrollPane = ScrollPane(content)
@@ -304,8 +342,8 @@ class MainApp : Application() {
         mainContent.children.clear()
         mainContent.children.add(scrollPane)
 
-        // Устанавливаем данные в таблицу
-        tableView.items = filteredData
+        // Первоначальное обновление пагинации
+        updatePagination()
     }
 
     private fun <T : Any> setupTableColumns(entityClass: Class<T>) {
@@ -337,6 +375,7 @@ class MainApp : Application() {
 
                 addActionColumn()
             }
+
             Product::class.java -> {
                 createColumn("ID", "id", 50.0)
                 createColumn("Название", "name", 150.0)
@@ -373,40 +412,55 @@ class MainApp : Application() {
                 tableView.columns.add(stockColumn)
 
                 createColumn("Мин. запас", "minimalStock", 80.0)
-
                 createColumn("Описание", "description", 150.0) { desc ->
                     val str = desc as? String
                     if (str != null) {
                         if (str.length > 20) str.substring(0, 20) + "..." else str
                     } else "—"
                 }
-
                 createColumn("Тренды", "salesTrends", 100.0) { trend ->
                     val str = trend as? String
                     if (str != null) {
                         if (str.length > 15) str.substring(0, 15) + "..." else str
                     } else "—"
                 }
-
                 addActionColumn()
             }
+
             Sale::class.java -> {
                 createColumn("ID", "id", 50.0)
-                createColumn("Устройство", "deviceId", 80.0)
-                createColumn("Продукт", "productId", 80.0)
+
+                // Колонка для устройства с названием вместо ID
+                val deviceColumn = TableColumn<Any, String>("Устройство").apply {
+                    prefWidth = 150.0
+                    setCellValueFactory { cellData ->
+                        val sale = cellData.value as Sale
+                        val machine = vendingMachineDAO.getById(sale.deviceId.toLong())
+                        SimpleStringProperty(machine?.name ?: "ID: ${sale.deviceId}")
+                    }
+                }
+                tableView.columns.add(deviceColumn)
+
+                // Колонка для продукта с названием вместо ID
+                val productColumn = TableColumn<Any, String>("Продукт").apply {
+                    prefWidth = 150.0
+                    setCellValueFactory { cellData ->
+                        val sale = cellData.value as Sale
+                        val product = productDAO.getById(sale.productId)
+                        SimpleStringProperty(product?.name ?: "ID: ${sale.productId}")
+                    }
+                }
+                tableView.columns.add(productColumn)
+
                 createColumn("Кол-во", "quantitySold", 70.0)
                 createColumn("Сумма", "totalAmount", 80.0) { amount -> "$amount ₽" }
-                createColumn("Дата", "saleDatetime", 90.0) { date ->
-                    (date as? LocalDateTime)?.format(DateTimeFormatter.ofPattern("dd.MM.yy")) ?: "—"
+                createColumn("Дата", "saleDatetime", 120.0) { date ->
+                    (date as? LocalDateTime)?.format(DateTimeFormatter.ofPattern("dd.MM.yy HH:mm")) ?: "—"
                 }
-                createColumn("Оплата", "paymentMethod", 80.0) { method ->
-                    val str = method as? String
-                    if (str != null) {
-                        if (str.length > 10) str.substring(0, 10) + "..." else str
-                    } else "—"
-                }
+                createColumn("Оплата", "paymentMethod", 80.0)
                 addActionColumn()
             }
+
             User::class.java -> {
                 createColumn("ID", "id", 50.0)
 
@@ -414,24 +468,25 @@ class MainApp : Application() {
                     prefWidth = 150.0
                     setCellValueFactory { cellData ->
                         val user = cellData.value as User
-                        SimpleStringProperty("${user.firstName} ${user.lastName}")
+                        SimpleStringProperty("${user.lastName} ${user.firstName} ${user.patronymic ?: ""}".trim())
                     }
                 }
                 tableView.columns.add(nameColumn)
 
-                createColumn("Email", "email", 150.0) { email ->
-                    val str = email as? String
-                    if (str != null) {
-                        if (str.length > 15) str.substring(0, 15) + "..." else str
-                    } else "—"
+                createColumn("Email", "email", 150.0)
+                createColumn("Телефон", "phone", 100.0)
+
+                // Колонка для роли с названием вместо ID
+                val roleColumn = TableColumn<Any, String>("Роль").apply {
+                    prefWidth = 100.0
+                    setCellValueFactory { cellData ->
+                        val user = cellData.value as User
+                        val role = roleDAO.getById(user.roleId)
+                        SimpleStringProperty(role?.name ?: "ID: ${user.roleId}")
+                    }
                 }
-                createColumn("Телефон", "phone", 100.0) { phone ->
-                    val str = phone as? String
-                    if (str != null) {
-                        if (str.length > 12) str.substring(0, 12) + "..." else str
-                    } else "—"
-                }
-                createColumn("Роль", "roleId", 60.0)
+                tableView.columns.add(roleColumn)
+
                 createColumn("Создан", "createdAt", 80.0) { date ->
                     (date as? LocalDateTime)?.format(DateTimeFormatter.ofPattern("dd.MM.yy")) ?: "—"
                 }
@@ -440,19 +495,45 @@ class MainApp : Application() {
                 }
                 addActionColumn()
             }
+
             Maintenance::class.java -> {
                 createColumn("ID", "id", 50.0)
-                createColumn("Устройство", "deviceId", 80.0)
+
+                // Колонка для устройства с названием вместо ID
+                val deviceColumn = TableColumn<Any, String>("Устройство").apply {
+                    prefWidth = 150.0
+                    setCellValueFactory { cellData ->
+                        val maint = cellData.value as Maintenance
+                        val machine = vendingMachineDAO.getById(maint.deviceId.toLong())
+                        SimpleStringProperty(machine?.name ?: "ID: ${maint.deviceId}")
+                    }
+                }
+                tableView.columns.add(deviceColumn)
+
                 createColumn("Дата", "serviceDate", 90.0) { date ->
                     (date as? LocalDate)?.format(DateTimeFormatter.ofPattern("dd.MM.yy")) ?: "—"
                 }
-                createColumn("Описание", "description", 200.0) { desc ->
-                    val str = desc as? String
-                    if (str != null) {
-                        if (str.length > 25) str.substring(0, 25) + "..." else str
-                    } else "—"
+                createColumn("Описание", "description", 200.0)
+
+                // Колонка для исполнителя с именем вместо ID
+                val performerColumn = TableColumn<Any, String>("Исполнитель").apply {
+                    prefWidth = 150.0
+                    setCellValueFactory { cellData ->
+                        val maint = cellData.value as Maintenance
+                        if (maint.performedBy != null) {
+                            val user = userDAO.getById(maint.performedBy)
+                            if (user != null) {
+                                SimpleStringProperty("${user.lastName} ${user.firstName}")
+                            } else {
+                                SimpleStringProperty("ID: ${maint.performedBy}")
+                            }
+                        } else {
+                            SimpleStringProperty("—")
+                        }
+                    }
                 }
-                createColumn("Исполнитель", "performedBy", 80.0) { id -> id?.toString() ?: "—" }
+                tableView.columns.add(performerColumn)
+
                 addActionColumn()
             }
         }
@@ -534,27 +615,56 @@ class MainApp : Application() {
         controlBar.alignment = Pos.CENTER_LEFT
         controlBar.style = "-fx-background-color: white; -fx-border-color: #dcdcdc; -fx-border-width: 1px; -fx-padding: 8px;"
 
-        // Поле фильтра
-        val filterLabel = Label("Фильтр:")
-        filterLabel.style = "-fx-font-size: 12px;"
+        // Выпадающий список "Показать X записей"
+        val showLabel = Label("Показать:")
+        showLabel.style = "-fx-font-size: 12px;"
+
+        pageSizeComboBox = ComboBox(FXCollections.observableArrayList(5, 10, 15, 25, 50, 100))
+        pageSizeComboBox.value = pageSize
+        pageSizeComboBox.style = "-fx-font-size: 12px; -fx-pref-width: 70px;"
+        pageSizeComboBox.setOnAction {
+            pageSize = pageSizeComboBox.value
+            currentPage = 0
+            updatePagination()
+        }
+
+        val recordsLabel = Label("записей")
+        recordsLabel.style = "-fx-font-size: 12px;"
+
+        // Информация о количестве записей
+        recordsInfoLabel = Label("")
+        recordsInfoLabel.style = "-fx-font-size: 12px; -fx-padding: 0 0 0 10; -fx-font-weight: bold;"
+
+        // Поле фильтра (теперь только по названию)
+        val filterLabel = Label("Фильтр по названию:")
+        filterLabel.style = "-fx-font-size: 12px; -fx-padding: 0 0 0 20;"
 
         filterField = TextField()
         filterField.style = "-fx-font-size: 12px; -fx-pref-width: 200px;"
-        filterField.promptText = "Поиск..."
+        filterField.promptText = "Введите название..."
 
         // Кнопки
         val addButton = Button("➕ Добавить")
         addButton.style = "-fx-background-color: #27ae60; -fx-text-fill: white; -fx-padding: 4 10; -fx-background-radius: 3; -fx-font-size: 12px;"
         addButton.setOnAction { showAddDialog(entityClass) }
 
-        val exportButton = Button("📤 Экспорт")
+        // Кнопка экспорта
+        val exportButton = MenuButton("📤 Экспорт")
         exportButton.style = "-fx-background-color: #3498db; -fx-text-fill: white; -fx-padding: 4 10; -fx-background-radius: 3; -fx-font-size: 12px;"
-        exportButton.setOnAction { exportData() }
+
+        val csvItem = MenuItem("CSV")
+        csvItem.setOnAction { exportToCSV() }
+
+        val htmlItem = MenuItem("HTML")
+        htmlItem.setOnAction { exportToHTML() }
+
+        exportButton.items.addAll(csvItem, htmlItem)
 
         val spacer = Region()
         HBox.setHgrow(spacer, Priority.ALWAYS)
 
         controlBar.children.addAll(
+            showLabel, pageSizeComboBox, recordsLabel, recordsInfoLabel,
             filterLabel, filterField,
             spacer,
             addButton, exportButton
@@ -568,44 +678,273 @@ class MainApp : Application() {
 
         return when (item) {
             is VendingMachine -> {
-                item.name.lowercase().contains(lowerFilter) ||
-                        (item.model?.lowercase()?.contains(lowerFilter) == true) ||
-                        (item.location?.lowercase()?.contains(lowerFilter) == true) ||
-                        (item.address?.lowercase()?.contains(lowerFilter) == true)
+                item.name.lowercase().contains(lowerFilter)
             }
             is Product -> {
-                item.name.lowercase().contains(lowerFilter) ||
-                        (item.description?.lowercase()?.contains(lowerFilter) == true)
+                item.name.lowercase().contains(lowerFilter)
             }
             is Sale -> {
-                item.deviceId.toString().contains(lowerFilter) ||
-                        item.productId.toString().contains(lowerFilter) ||
-                        (item.paymentMethod?.lowercase()?.contains(lowerFilter) == true)
+                // Для продаж фильтруем по названию продукта через productId
+                val product = productDAO.getById(item.productId)
+                product?.name?.lowercase()?.contains(lowerFilter) == true
             }
             is User -> {
-                item.firstName.lowercase().contains(lowerFilter) ||
-                        item.lastName.lowercase().contains(lowerFilter) ||
-                        (item.email?.lowercase()?.contains(lowerFilter) == true) ||
-                        (item.phone?.contains(lowerFilter) == true)
+                "${item.firstName} ${item.lastName}".lowercase().contains(lowerFilter) ||
+                        item.email?.lowercase()?.contains(lowerFilter) == true
             }
             is Maintenance -> {
-                item.deviceId.toString().contains(lowerFilter) ||
-                        (item.description?.lowercase()?.contains(lowerFilter) == true)
+                // Для обслуживания фильтруем по названию автомата через deviceId
+                val machine = vendingMachineDAO.getById(item.deviceId.toLong())
+                machine?.name?.lowercase()?.contains(lowerFilter) == true
             }
             else -> false
         }
     }
 
-    private fun exportData() {
-        val alert = Alert(Alert.AlertType.INFORMATION)
-        alert.title = "Экспорт данных"
-        alert.headerText = null
-        alert.contentText = "Функция экспорта будет реализована позже"
-        alert.showAndWait()
+    private fun createPaginationBar(): HBox {
+        val paginationBar = HBox(8.0)
+        paginationBar.alignment = Pos.CENTER
+        paginationBar.style = "-fx-padding: 10 0;"
+
+        prevButton = Button("◀ Предыдущая")
+        prevButton.style = "-fx-background-color: #34495e; -fx-text-fill: white; -fx-padding: 5 10; -fx-background-radius: 3; -fx-font-size: 12px;"
+        prevButton.setOnAction {
+            if (currentPage > 0) {
+                currentPage--
+                updatePagination()
+            }
+        }
+
+        nextButton = Button("Следующая ▶")
+        nextButton.style = "-fx-background-color: #34495e; -fx-text-fill: white; -fx-padding: 5 10; -fx-background-radius: 3; -fx-font-size: 12px;"
+        nextButton.setOnAction {
+            if ((currentPage + 1) * pageSize < filteredData.size) {
+                currentPage++
+                updatePagination()
+            }
+        }
+
+        paginationLabel = Label()
+        paginationLabel.style = "-fx-font-weight: bold; -fx-font-size: 12px; -fx-padding: 0 10;"
+
+        paginationBar.children.addAll(prevButton, paginationLabel, nextButton)
+
+        return paginationBar
+    }
+
+    private fun updatePagination() {
+        if (!::filteredData.isInitialized) return
+
+        val totalPages = maxOf(1, (filteredData.size + pageSize - 1) / pageSize)
+
+        // Корректируем текущую страницу, если она выходит за пределы
+        if (currentPage >= totalPages) {
+            currentPage = maxOf(0, totalPages - 1)
+        }
+
+        paginationLabel.text = "Страница ${currentPage + 1} из $totalPages"
+
+        // Обновляем информацию о количестве записей
+        val start = currentPage * pageSize
+        val end = minOf(start + pageSize, filteredData.size)
+        recordsInfoLabel.text = "Записи ${start + 1}-$end из ${filteredData.size}"
+
+        // Управляем видимостью кнопок пагинации
+        prevButton.isVisible = currentPage > 0
+        nextButton.isVisible = currentPage < totalPages - 1
+
+        // Обновляем отображаемые данные
+        val pageItems = FXCollections.observableArrayList<Any>()
+        for (i in start until end) {
+            pageItems.add(filteredData[i])
+        }
+        tableView.items = pageItems
+
+        // Принудительно обновляем таблицу
+        tableView.refresh()
+    }
+
+    private fun exportToCSV() {
+        val entityClass = currentEntityClass ?: return
+        val data = filteredData
+
+        val fileChooser = FileChooser()
+        fileChooser.title = "Сохранить как CSV"
+        fileChooser.initialFileName = "${getEntityName(entityClass)}_${LocalDate.now()}.csv"
+        fileChooser.extensionFilters.addAll(
+            FileChooser.ExtensionFilter("CSV файлы", "*.csv"),
+            FileChooser.ExtensionFilter("Все файлы", "*.*")
+        )
+
+        val file = fileChooser.showSaveDialog(mainContent.scene.window) ?: return
+
+        try {
+            // Формируем содержимое CSV
+            val content = StringBuilder()
+
+            // Заголовки
+            val headers = tableView.columns.filter { it.text != "Действия" }.joinToString(";") { it.text }
+            content.appendLine(headers)
+
+            // Данные (экспортируем все данные, не только текущую страницу)
+            for (item in filteredData) {
+                val row = tableView.columns.filter { it.text != "Действия" }.joinToString(";") { column ->
+                    val cellData = getCellData(item, column)
+                    when (cellData) {
+                        is LocalDate -> cellData.format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))
+                        is LocalDateTime -> cellData.format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))
+                        is BigDecimal -> cellData.toString().replace(".", ",")
+                        else -> cellData?.toString()?.replace(";", ",") ?: ""
+                    }
+                }
+                content.appendLine(row)
+            }
+
+            // Записываем в файл в кодировке Windows-1251
+            Files.write(Paths.get(file.toURI()), content.toString().toByteArray(Charset.forName("Windows-1251")))
+
+            showAlert("Успех", "Данные успешно экспортированы в CSV\nФайл сохранен: ${file.absolutePath}")
+
+        } catch (e: Exception) {
+            showAlert("Ошибка", "Не удалось экспортировать данные: ${e.message}")
+        }
+    }
+
+    private fun exportToHTML() {
+        val entityClass = currentEntityClass ?: return
+        val data = filteredData
+
+        val fileChooser = FileChooser()
+        fileChooser.title = "Сохранить как HTML"
+        fileChooser.initialFileName = "${getEntityName(entityClass)}_${LocalDate.now()}.html"
+        fileChooser.extensionFilters.addAll(
+            FileChooser.ExtensionFilter("HTML файлы", "*.html", "*.htm"),
+            FileChooser.ExtensionFilter("Все файлы", "*.*")
+        )
+
+        val file = fileChooser.showSaveDialog(mainContent.scene.window) ?: return
+
+        try {
+            val content = StringBuilder()
+
+            content.appendLine("<!DOCTYPE html>")
+            content.appendLine("<html>")
+            content.appendLine("<head>")
+            content.appendLine("<meta charset='UTF-8'>")
+            content.appendLine("<title>${getEntityName(entityClass)} - Отчет</title>")
+            content.appendLine("<style>")
+            content.appendLine("body { font-family: Arial, sans-serif; margin: 20px; background-color: #f5f5f5; }")
+            content.appendLine("h1 { color: #2c3e50; text-align: center; }")
+            content.appendLine(".date { color: #7f8c8d; text-align: right; margin-bottom: 20px; }")
+            content.appendLine("table { border-collapse: collapse; width: 100%; background-color: white; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }")
+            content.appendLine("th { background-color: #3498db; color: white; padding: 12px; text-align: left; }")
+            content.appendLine("td { padding: 8px 12px; border-bottom: 1px solid #ddd; }")
+            content.appendLine("tr:nth-child(even) { background-color: #f2f2f2; }") // Выделение четных строк в HTML
+            content.appendLine("tr:hover { background-color: #e8f4f8; }")
+            content.appendLine(".footer { margin-top: 20px; text-align: center; color: #7f8c8d; font-size: 12px; }")
+            content.appendLine("</style>")
+            content.appendLine("</head>")
+            content.appendLine("<body>")
+
+            content.appendLine("<h1>${getEntityName(entityClass)}</h1>")
+            content.appendLine("<div class='date'>Отчет создан: ${LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))}</div>")
+
+            content.appendLine("<table>")
+            content.appendLine("<thead><tr>")
+            tableView.columns.filter { it.text != "Действия" }.forEach { column ->
+                content.appendLine("<th>${column.text}</th>")
+            }
+            content.appendLine("</tr></thead>")
+
+            content.appendLine("<tbody>")
+            // Экспортируем все данные, не только текущую страницу
+            for (item in filteredData) {
+                content.appendLine("<tr>")
+                tableView.columns.filter { it.text != "Действия" }.forEach { column ->
+                    val cellData = getCellData(item, column)
+                    val text = when (cellData) {
+                        is LocalDate -> cellData.format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))
+                        is LocalDateTime -> cellData.format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))
+                        else -> cellData?.toString() ?: ""
+                    }
+                    content.appendLine("<td>$text</td>")
+                }
+                content.appendLine("</tr>")
+            }
+            content.appendLine("</tbody>")
+            content.appendLine("</table>")
+
+            content.appendLine("<div class='footer'>Всего записей: ${filteredData.size}</div>")
+            content.appendLine("</body>")
+            content.appendLine("</html>")
+
+            // Записываем в файл в UTF-8
+            Files.write(Paths.get(file.toURI()), content.toString().toByteArray(Charset.forName("UTF-8")))
+
+            showAlert("Успех", "Данные успешно экспортированы в HTML\nФайл сохранен: ${file.absolutePath}")
+
+        } catch (e: Exception) {
+            showAlert("Ошибка", "Не удалось экспортировать данные в HTML: ${e.message}")
+        }
+    }
+
+    // Вспомогательная функция для получения данных из ячейки
+    private fun getCellData(item: Any, column: TableColumn<Any, *>): Any? {
+        return try {
+            val propertyName = when (column.text) {
+                "ID" -> "id"
+                "Название" -> "name"
+                "Модель" -> "model"
+                "Компания" -> "company"
+                "Модем" -> "modem"
+                "Дата" -> when (item) {
+                    is VendingMachine -> "installationDate"
+                    is Sale -> "saleDatetime"
+                    is Maintenance -> "serviceDate"
+                    else -> null
+                }
+                "Цена" -> "price"
+                "В наличии" -> "quantityInStock"
+                "Мин. запас" -> "minimalStock"
+                "Описание" -> "description"
+                "Тренды" -> "salesTrends"
+                "Устройство" -> when (item) {
+                    is Sale -> "deviceId"
+                    is Maintenance -> "deviceId"
+                    else -> null
+                }
+                "Продукт" -> "productId"
+                "Кол-во" -> "quantitySold"
+                "Сумма" -> "totalAmount"
+                "Оплата" -> "paymentMethod"
+                "Email" -> "email"
+                "Телефон" -> "phone"
+                "Роль" -> "roleId"
+                "Создан" -> "createdAt"
+                "Вход" -> "lastLogin"
+                "Исполнитель" -> "performedBy"
+                else -> null
+            }
+
+            if (propertyName != null) {
+                val field = item::class.java.getDeclaredField(propertyName)
+                field.isAccessible = true
+                field.get(item)
+            } else if (column.text == "ФИО" && item is User) {
+                "${item.firstName} ${item.lastName}"
+            } else if (column.text == "Адрес/Место" && item is VendingMachine) {
+                val address = item.address ?: ""
+                val location = item.location ?: ""
+                if (address.isNotEmpty() || location.isNotEmpty()) "$address / $location" else "—"
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            null
+        }
     }
 
     private fun showAddDialog(entityClass: Class<*>) {
-
         val stage = Stage()
         stage.title = "Добавить запись"
         stage.initModality(Modality.APPLICATION_MODAL)
@@ -616,74 +955,103 @@ class MainApp : Application() {
         grid.padding = Insets(15.0)
 
         data class FieldMeta(
-            val field: TextField,
+            val field: Control,
             val required: Boolean,
-            val type: String?
+            val type: String? = null
         )
 
         val fields = mutableListOf<FieldMeta>()
         var row = 0
 
-        fun addField(
+        fun addTextField(
             labelText: String,
             required: Boolean = false,
             type: String? = null,
             example: String = ""
-        ) {
+        ): TextField {
             val label = Label(labelText)
-            if (required) label.style = "-fx-font-weight: bold;"
+            if (required) label.style = "-fx-font-weight: bold; -fx-text-fill: #c0392b;"
             val tf = TextField()
             tf.promptText = example
             grid.add(label, 0, row)
             grid.add(tf, 1, row++)
             fields.add(FieldMeta(tf, required, type))
+            return tf
+        }
+
+        fun addComboBox(
+            labelText: String,
+            items: List<Pair<Any, String>>,
+            required: Boolean = false
+        ): ComboBox<Pair<Any, String>> {
+            val label = Label(labelText)
+            if (required) label.style = "-fx-font-weight: bold; -fx-text-fill: #c0392b;"
+            val cb = ComboBox(FXCollections.observableArrayList(items))
+            cb.converter = object : javafx.util.StringConverter<Pair<Any, String>>() {
+                override fun toString(item: Pair<Any, String>?): String = item?.second ?: ""
+                override fun fromString(string: String): Pair<Any, String>? = null
+            }
+            cb.promptText = "Выберите..."
+            cb.style = "-fx-font-size: 12px;"
+            grid.add(label, 0, row)
+            grid.add(cb, 1, row++)
+            fields.add(FieldMeta(cb, required))
+            return cb
         }
 
         when (entityClass) {
-
             VendingMachine::class.java -> {
-                addField("Название*", true, null, "Кофейный автомат №1")
-                addField("Модель", false, null, "Saeco 400")
-                addField("Компания", false, null, "ООО ТА")
-                addField("Модем", false, null, "1824100025")
-                addField("Адрес", false, null, "ул. Ленина, 10")
-                addField("Место", false, null, "1 этаж")
-                addField("Дата установки", false, "date", "2024-01-15")
+                addTextField("Название*", true, null, "Кофейный автомат №1")
+                addTextField("Модель*", true, null, "Saeco 400")
+                addTextField("Компания*", true, null, "ООО ТА")
+                addTextField("Модем*", true, null, "1824100025")
+                addTextField("Адрес*", true, null, "ул. Ленина, 10")
+                addTextField("Место*", true, null, "1 этаж")
+                addTextField("Дата установки*", true, "date", "2024-01-15")
             }
 
             Product::class.java -> {
-                addField("Название*", true, null, "Кофе Латте")
-                addField("Цена*", true, "decimal", "150.00")
-                addField("Количество*", true, "int", "50")
-                addField("Мин. запас*", true, "int", "10")
-                addField("Описание", false, null, "Классический кофе")
-                addField("Тренды", false, null, "Высокий спрос")
-            }
-
-            User::class.java -> {
-                addField("Имя*", true)
-                addField("Фамилия*", true)
-                addField("Отчество")
-                addField("Email")
-                addField("Телефон")
-                addField("Role ID*", true, "int", "1")
-                addField("Пароль*", true)
+                addTextField("Название*", true, null, "Кофе Латте")
+                addTextField("Цена*", true, "decimal", "150.00")
+                addTextField("Количество*", true, "int", "50")
+                addTextField("Мин. запас*", true, "int", "10")
+                addTextField("Описание*", true, null, "Классический кофе")
+                addTextField("Тренды*", true, null, "Высокий спрос")
             }
 
             Sale::class.java -> {
-                addField("Device ID*", true, "int", "1")
-                addField("Product ID*", true, "int", "2")
-                addField("Количество*", true, "int", "3")
-                addField("Сумма*", true, "decimal", "450.00")
-                addField("Дата", false, "datetime", "2024-03-20T10:30:00")
-                addField("Оплата")
+                val machines = vendingMachineDAO.getAll().map { it.id as Any to "${it.name} (${it.address})" }
+                val products = productDAO.getAll().map { it.id as Any to "${it.name} - ${it.price} ₽" }
+
+                addComboBox("Устройство*", machines, true)
+                addComboBox("Продукт*", products, true)
+                addTextField("Количество*", true, "int", "3")
+                addTextField("Сумма*", true, "decimal", "450.00")
+                addTextField("Дата*", true, "datetime", "2024-03-20T10:30:00")
+                addTextField("Оплата*", true, null, "Наличные/Карта")
+            }
+
+            User::class.java -> {
+                addTextField("Имя*", true)
+                addTextField("Фамилия*", true)
+                addTextField("Отчество*", true)
+                addTextField("Email*", true)
+                addTextField("Телефон*", true)
+
+                val roles = roleDAO.getAll().map { it.id as Any to it.name }
+                addComboBox("Роль*", roles, true)
+
+                addTextField("Пароль*", true)
             }
 
             Maintenance::class.java -> {
-                addField("Device ID*", true, "int", "1")
-                addField("Дата", false, "date", "2024-03-20")
-                addField("Описание")
-                addField("Исполнитель ID", false, "int", "3")
+                val machines = vendingMachineDAO.getAll().map { it.id as Any to "${it.name} (${it.address})" }
+                val users = userDAO.getAll().map { it.id as Any to "${it.lastName} ${it.firstName}" }
+
+                addComboBox("Устройство*", machines, true)
+                addTextField("Дата*", true, "date", "2024-03-20")
+                addTextField("Описание*", true, null, "Замена детали")
+                addComboBox("Исполнитель*", users, true)
             }
         }
 
@@ -692,31 +1060,52 @@ class MainApp : Application() {
 
         val cancelButton = Button("Отмена")
 
-        fun validateAll(): Boolean =
-            fields.all { validateField(it.field, it.required, it.type) }
+        fun validateAll(): Boolean {
+            return fields.all { meta ->
+                when (val field = meta.field) {
+                    is TextField -> validateField(field, meta.required, meta.type)
+                    is ComboBox<*> -> {
+                        if (meta.required && field.value == null) {
+                            field.style = "-fx-border-color: #e74c3c; -fx-border-width: 2;"
+                            false
+                        } else {
+                            field.style = ""
+                            true
+                        }
+                    }
+                    else -> true
+                }
+            }
+        }
 
-        fields.forEach {
-            it.field.textProperty().addListener { _, _, _ ->
-                saveButton.isDisable = !validateAll()
+        fields.forEach { meta ->
+            when (val field = meta.field) {
+                is TextField -> {
+                    field.textProperty().addListener { _, _, _ ->
+                        saveButton.isDisable = !validateAll()
+                    }
+                }
+                is ComboBox<*> -> {
+                    field.valueProperty().addListener { _, _, _ ->
+                        saveButton.isDisable = !validateAll()
+                    }
+                }
             }
         }
 
         saveButton.setOnAction {
             try {
-
                 when (entityClass) {
-
                     VendingMachine::class.java -> {
                         vendingMachineDAO.save(
                             VendingMachine(
-                                name = fields[0].field.text,
-                                model = fields[1].field.text.ifBlank { null },
-                                company = fields[2].field.text.ifBlank { null },
-                                modem = fields[3].field.text.ifBlank { null },
-                                address = fields[4].field.text.ifBlank { null },
-                                location = fields[5].field.text.ifBlank { null },
-                                installationDate = fields[6].field.text
-                                    .takeIf { it.isNotBlank() }?.let { LocalDate.parse(it) }
+                                name = (fields[0].field as TextField).text,
+                                model = (fields[1].field as TextField).text,
+                                company = (fields[2].field as TextField).text,
+                                modem = (fields[3].field as TextField).text,
+                                address = (fields[4].field as TextField).text,
+                                location = (fields[5].field as TextField).text,
+                                installationDate = LocalDate.parse((fields[6].field as TextField).text)
                             )
                         )
                     }
@@ -724,56 +1113,58 @@ class MainApp : Application() {
                     Product::class.java -> {
                         productDAO.save(
                             Product(
-                                name = fields[0].field.text,
-                                price = fields[1].field.text.toBigDecimal(),
-                                quantityInStock = fields[2].field.text.toInt(),
-                                minimalStock = fields[3].field.text.toInt(),
-                                description = fields[4].field.text.ifBlank { null },
-                                salesTrends = fields[5].field.text.ifBlank { null }
-                            )
-                        )
-                    }
-
-                    User::class.java -> {
-                        userDAO.save(
-                            User(
-                                firstName = fields[0].field.text,
-                                lastName = fields[1].field.text,
-                                patronymic = fields[2].field.text.ifBlank { null },
-                                email = fields[3].field.text.ifBlank { null },
-                                phone = fields[4].field.text.ifBlank { null },
-                                roleId = fields[5].field.text.toInt(),
-                                passwordHash = fields[6].field.text
+                                name = (fields[0].field as TextField).text,
+                                price = (fields[1].field as TextField).text.toBigDecimal(),
+                                quantityInStock = (fields[2].field as TextField).text.toInt(),
+                                minimalStock = (fields[3].field as TextField).text.toInt(),
+                                description = (fields[4].field as TextField).text,
+                                salesTrends = (fields[5].field as TextField).text
                             )
                         )
                     }
 
                     Sale::class.java -> {
+                        val deviceCb = fields[0].field as ComboBox<Pair<Any, String>>
+                        val productCb = fields[1].field as ComboBox<Pair<Any, String>>
+
                         saleDAO.save(
                             Sale(
-                                deviceId = fields[0].field.text.toInt(),
-                                productId = fields[1].field.text.toInt(),
-                                quantitySold = fields[2].field.text.toInt(),
-                                totalAmount = fields[3].field.text.toBigDecimal(),
-                                saleDatetime = fields[4].field.text
-                                    .takeIf { it.isNotBlank() }
-                                    ?.let { LocalDateTime.parse(it) }
-                                    ?: LocalDateTime.now(),
-                                paymentMethod = fields[5].field.text.ifBlank { null }
+                                deviceId = (deviceCb.value.first as Number).toInt(),
+                                productId = (productCb.value.first as Number).toInt(),
+                                quantitySold = (fields[2].field as TextField).text.toInt(),
+                                totalAmount = (fields[3].field as TextField).text.toBigDecimal(),
+                                saleDatetime = LocalDateTime.parse((fields[4].field as TextField).text),
+                                paymentMethod = (fields[5].field as TextField).text
+                            )
+                        )
+                    }
+
+                    User::class.java -> {
+                        val roleCb = fields[5].field as ComboBox<Pair<Any, String>>
+
+                        userDAO.save(
+                            User(
+                                firstName = (fields[0].field as TextField).text,
+                                lastName = (fields[1].field as TextField).text,
+                                patronymic = (fields[2].field as TextField).text,
+                                email = (fields[3].field as TextField).text,
+                                phone = (fields[4].field as TextField).text,
+                                roleId = (roleCb.value.first as Number).toInt(),
+                                passwordHash = (fields[6].field as TextField).text
                             )
                         )
                     }
 
                     Maintenance::class.java -> {
+                        val deviceCb = fields[0].field as ComboBox<Pair<Any, String>>
+                        val performerCb = fields[3].field as ComboBox<Pair<Any, String>>
+
                         maintenanceDAO.save(
                             Maintenance(
-                                deviceId = fields[0].field.text.toInt(),
-                                serviceDate = fields[1].field.text
-                                    .takeIf { it.isNotBlank() }
-                                    ?.let { LocalDate.parse(it) }
-                                    ?: LocalDate.now(),
-                                description = fields[2].field.text.ifBlank { null },
-                                performedBy = fields[3].field.text.toIntOrNull()
+                                deviceId = (deviceCb.value.first as Number).toInt(),
+                                serviceDate = LocalDate.parse((fields[1].field as TextField).text),
+                                description = (fields[2].field as TextField).text,
+                                performedBy = (performerCb.value.first as Number).toInt()
                             )
                         )
                     }
@@ -781,7 +1172,6 @@ class MainApp : Application() {
 
                 stage.close()
                 refreshCurrentTable()
-
             } catch (e: Exception) {
                 showAlert("Ошибка", e.message ?: "Ошибка сохранения")
             }
@@ -801,7 +1191,6 @@ class MainApp : Application() {
     }
 
     private fun showEditDialog(item: Any) {
-
         val stage = Stage()
         stage.title = "Редактировать запись"
         stage.initModality(Modality.APPLICATION_MODAL)
@@ -812,100 +1201,114 @@ class MainApp : Application() {
         grid.padding = Insets(15.0)
 
         data class FieldMeta(
-            val field: TextField,
+            val field: Control,
             val required: Boolean,
-            val type: String?
+            val type: String? = null
         )
 
         val fields = mutableListOf<FieldMeta>()
         var row = 0
 
-        fun addField(
+        fun addTextField(
             labelText: String,
             value: String,
             required: Boolean = false,
             type: String? = null,
             example: String = ""
-        ) {
+        ): TextField {
             val label = Label(labelText)
-            if (required) label.style = "-fx-font-weight: bold;"
-
+            if (required) label.style = "-fx-font-weight: bold; -fx-text-fill: #c0392b;"
             val tf = TextField(value)
             tf.promptText = example
-
             grid.add(label, 0, row)
             grid.add(tf, 1, row++)
             fields.add(FieldMeta(tf, required, type))
+            return tf
+        }
+
+        fun addComboBox(
+            labelText: String,
+            items: List<Pair<Any, String>>,
+            selectedId: Any?,
+            required: Boolean = false
+        ): ComboBox<Pair<Any, String>> {
+            val label = Label(labelText)
+            if (required) label.style = "-fx-font-weight: bold; -fx-text-fill: #c0392b;"
+            val cb = ComboBox(FXCollections.observableArrayList(items))
+            cb.converter = object : javafx.util.StringConverter<Pair<Any, String>>() {
+                override fun toString(item: Pair<Any, String>?): String = item?.second ?: ""
+                override fun fromString(string: String): Pair<Any, String>? = null
+            }
+
+            // Устанавливаем выбранное значение
+            selectedId?.let { id ->
+                val selectedItem = items.find { it.first == id }
+                if (selectedItem != null) {
+                    cb.value = selectedItem
+                }
+            }
+
+            cb.promptText = "Выберите..."
+            cb.style = "-fx-font-size: 12px;"
+            grid.add(label, 0, row)
+            grid.add(cb, 1, row++)
+            fields.add(FieldMeta(cb, required))
+            return cb
         }
 
         when (item) {
-
             is VendingMachine -> {
-                addField("Название*", item.name, true)
-                addField("Модель", item.model ?: "", false, null, "Saeco 400")
-                addField("Компания", item.company ?: "")
-                addField("Модем", item.modem ?: "")
-                addField("Адрес", item.address ?: "")
-                addField("Место", item.location ?: "")
-                addField(
-                    "Дата установки",
-                    item.installationDate?.toString() ?: "",
-                    false,
-                    "date",
-                    "2024-01-15"
-                )
+                addTextField("Название*", item.name, true)
+                addTextField("Модель*", item.model ?: "", true, null, "Saeco 400")
+                addTextField("Компания*", item.company ?: "", true)
+                addTextField("Модем*", item.modem ?: "", true)
+                addTextField("Адрес*", item.address ?: "", true)
+                addTextField("Место*", item.location ?: "", true)
+                addTextField("Дата установки*", item.installationDate?.toString() ?: "", true, "date", "2024-01-15")
             }
 
             is Product -> {
-                addField("Название*", item.name, true)
-                addField("Цена*", item.price.toString(), true, "decimal", "150.00")
-                addField("Количество*", item.quantityInStock.toString(), true, "int", "50")
-                addField("Мин. запас*", item.minimalStock.toString(), true, "int", "10")
-                addField("Описание", item.description ?: "")
-                addField("Тренды", item.salesTrends ?: "")
-            }
-
-            is User -> {
-                addField("Имя*", item.firstName, true)
-                addField("Фамилия*", item.lastName, true)
-                addField("Отчество", item.patronymic ?: "")
-                addField("Email", item.email ?: "")
-                addField("Телефон", item.phone ?: "")
-                addField("Role ID*", item.roleId.toString(), true, "int", "1")
+                addTextField("Название*", item.name, true)
+                addTextField("Цена*", item.price.toString(), true, "decimal", "150.00")
+                addTextField("Количество*", item.quantityInStock.toString(), true, "int", "50")
+                addTextField("Мин. запас*", item.minimalStock.toString(), true, "int", "10")
+                addTextField("Описание*", item.description ?: "", true)
+                addTextField("Тренды*", item.salesTrends ?: "", true)
             }
 
             is Sale -> {
-                addField("Device ID*", item.deviceId.toString(), true, "int")
-                addField("Product ID*", item.productId.toString(), true, "int")
-                addField("Количество*", item.quantitySold.toString(), true, "int")
-                addField("Сумма*", item.totalAmount.toString(), true, "decimal")
-                addField(
-                    "Дата",
-                    item.saleDatetime.toString(),
-                    false,
-                    "datetime",
-                    "2024-03-20T10:30:00"
-                )
-                addField("Метод оплаты", item.paymentMethod ?: "")
+                val machines = vendingMachineDAO.getAll().map { it.id as Any to "${it.name} (${it.address})" }
+                val products = productDAO.getAll().map { it.id as Any to "${it.name} - ${it.price} ₽" }
+
+                addComboBox("Устройство*", machines, item.deviceId, true)
+                addComboBox("Продукт*", products, item.productId, true)
+                addTextField("Количество*", item.quantitySold.toString(), true, "int")
+                addTextField("Сумма*", item.totalAmount.toString(), true, "decimal")
+                addTextField("Дата*", item.saleDatetime.toString(), true, "datetime", "2024-03-20T10:30:00")
+                addTextField("Оплата*", item.paymentMethod ?: "", true)
+            }
+
+            is User -> {
+                addTextField("Имя*", item.firstName, true)
+                addTextField("Фамилия*", item.lastName, true)
+                addTextField("Отчество*", item.patronymic ?: "", true)
+                addTextField("Email*", item.email ?: "", true)
+                addTextField("Телефон*", item.phone ?: "", true)
+
+                val roles = roleDAO.getAll().map { it.id as Any to it.name }
+                addComboBox("Роль*", roles, item.roleId, true)
+
+                addTextField("Пароль*", "", true)
             }
 
             is Maintenance -> {
-                addField("Device ID*", item.deviceId.toString(), true, "int")
-                addField(
-                    "Дата",
-                    item.serviceDate.toString(),
-                    false,
-                    "date",
-                    "2024-03-20"
-                )
-                addField("Описание", item.description ?: "")
-                addField(
-                    "Исполнитель ID",
-                    item.performedBy?.toString() ?: "",
-                    false,
-                    "int",
-                    "3"
-                )
+                val machines = vendingMachineDAO.getAll().map { it.id as Any to "${it.name} (${it.address})" }
+                val users = userDAO.getAll().map { it.id as Any to "${it.lastName} ${it.firstName}" }
+
+                addComboBox("Устройство*", machines, item.deviceId, true)
+                addTextField("Дата*", item.serviceDate.toString(), true, "date", "2024-03-20")
+                addTextField("Описание*", item.description ?: "", true)
+                addComboBox("Исполнитель*", users, item.performedBy, true)
             }
         }
 
@@ -914,12 +1317,36 @@ class MainApp : Application() {
 
         val cancelButton = Button("Отмена")
 
-        fun validateAll(): Boolean =
-            fields.all { validateField(it.field, it.required, it.type) }
+        fun validateAll(): Boolean {
+            return fields.all { meta ->
+                when (val field = meta.field) {
+                    is TextField -> validateField(field, meta.required, meta.type)
+                    is ComboBox<*> -> {
+                        if (meta.required && field.value == null) {
+                            field.style = "-fx-border-color: #e74c3c; -fx-border-width: 2;"
+                            false
+                        } else {
+                            field.style = ""
+                            true
+                        }
+                    }
+                    else -> true
+                }
+            }
+        }
 
-        fields.forEach {
-            it.field.textProperty().addListener { _, _, _ ->
-                saveButton.isDisable = !validateAll()
+        fields.forEach { meta ->
+            when (val field = meta.field) {
+                is TextField -> {
+                    field.textProperty().addListener { _, _, _ ->
+                        saveButton.isDisable = !validateAll()
+                    }
+                }
+                is ComboBox<*> -> {
+                    field.valueProperty().addListener { _, _, _ ->
+                        saveButton.isDisable = !validateAll()
+                    }
+                }
             }
         }
 
@@ -927,75 +1354,74 @@ class MainApp : Application() {
 
         saveButton.setOnAction {
             try {
-
                 when (item) {
-
                     is VendingMachine -> {
-                        item.name = fields[0].field.text
-                        item.model = fields[1].field.text.ifBlank { null }
-                        item.company = fields[2].field.text.ifBlank { null }
-                        item.modem = fields[3].field.text.ifBlank { null }
-                        item.address = fields[4].field.text.ifBlank { null }
-                        item.location = fields[5].field.text.ifBlank { null }
-                        item.installationDate = fields[6].field.text
-                            .takeIf { it.isNotBlank() }
-                            ?.let { LocalDate.parse(it) }
-
+                        item.name = (fields[0].field as TextField).text
+                        item.model = (fields[1].field as TextField).text
+                        item.company = (fields[2].field as TextField).text
+                        item.modem = (fields[3].field as TextField).text
+                        item.address = (fields[4].field as TextField).text
+                        item.location = (fields[5].field as TextField).text
+                        item.installationDate = LocalDate.parse((fields[6].field as TextField).text)
                         vendingMachineDAO.update(item)
                     }
 
                     is Product -> {
-                        item.name = fields[0].field.text
-                        item.price = fields[1].field.text.toBigDecimal()
-                        item.quantityInStock = fields[2].field.text.toInt()
-                        item.minimalStock = fields[3].field.text.toInt()
-                        item.description = fields[4].field.text.ifBlank { null }
-                        item.salesTrends = fields[5].field.text.ifBlank { null }
-
+                        item.name = (fields[0].field as TextField).text
+                        item.price = (fields[1].field as TextField).text.toBigDecimal()
+                        item.quantityInStock = (fields[2].field as TextField).text.toInt()
+                        item.minimalStock = (fields[3].field as TextField).text.toInt()
+                        item.description = (fields[4].field as TextField).text
+                        item.salesTrends = (fields[5].field as TextField).text
                         productDAO.update(item)
                     }
 
+                    is Sale -> {
+                        val deviceCb = fields[0].field as ComboBox<Pair<Any, String>>
+                        val productCb = fields[1].field as ComboBox<Pair<Any, String>>
+
+                        item.deviceId = (deviceCb.value.first as Number).toInt()
+                        item.productId = (productCb.value.first as Number).toInt()
+                        item.quantitySold = (fields[2].field as TextField).text.toInt()
+                        item.totalAmount = (fields[3].field as TextField).text.toBigDecimal()
+                        item.saleDatetime = LocalDateTime.parse((fields[4].field as TextField).text)
+                        item.paymentMethod = (fields[5].field as TextField).text
+                        saleDAO.update(item)
+                    }
+
                     is User -> {
-                        item.firstName = fields[0].field.text
-                        item.lastName = fields[1].field.text
-                        item.patronymic = fields[2].field.text.ifBlank { null }
-                        item.email = fields[3].field.text.ifBlank { null }
-                        item.phone = fields[4].field.text.ifBlank { null }
-                        item.roleId = fields[5].field.text.toInt()
+                        val roleCb = fields[5].field as ComboBox<Pair<Any, String>>
+
+                        item.firstName = (fields[0].field as TextField).text
+                        item.lastName = (fields[1].field as TextField).text
+                        item.patronymic = (fields[2].field as TextField).text
+                        item.email = (fields[3].field as TextField).text
+                        item.phone = (fields[4].field as TextField).text
+                        item.roleId = (roleCb.value.first as Number).toInt()
+
+                        // Если пароль не пустой, обновляем его
+                        val passwordField = fields[6].field as TextField
+                        if (passwordField.text.isNotBlank()) {
+                            item.passwordHash = passwordField.text
+                        }
 
                         userDAO.update(item)
                     }
 
-                    is Sale -> {
-                        item.deviceId = fields[0].field.text.toInt()
-                        item.productId = fields[1].field.text.toInt()
-                        item.quantitySold = fields[2].field.text.toInt()
-                        item.totalAmount = fields[3].field.text.toBigDecimal()
-                        item.saleDatetime = fields[4].field.text
-                            .takeIf { it.isNotBlank() }
-                            ?.let { LocalDateTime.parse(it) }
-                            ?: item.saleDatetime
-                        item.paymentMethod = fields[5].field.text.ifBlank { null }
-
-                        saleDAO.update(item)
-                    }
-
                     is Maintenance -> {
-                        item.deviceId = fields[0].field.text.toInt()
-                        item.serviceDate = fields[1].field.text
-                            .takeIf { it.isNotBlank() }
-                            ?.let { LocalDate.parse(it) }
-                            ?: item.serviceDate
-                        item.description = fields[2].field.text.ifBlank { null }
-                        item.performedBy = fields[3].field.text.toIntOrNull()
+                        val deviceCb = fields[0].field as ComboBox<Pair<Any, String>>
+                        val performerCb = fields[3].field as ComboBox<Pair<Any, String>>
 
+                        item.deviceId = (deviceCb.value.first as Number).toInt()
+                        item.serviceDate = LocalDate.parse((fields[1].field as TextField).text)
+                        item.description = (fields[2].field as TextField).text
+                        item.performedBy = (performerCb.value.first as Number).toInt()
                         maintenanceDAO.update(item)
                     }
                 }
 
                 stage.close()
                 refreshCurrentTable()
-
             } catch (e: Exception) {
                 showAlert("Ошибка", e.message ?: "Ошибка обновления")
             }
@@ -1089,31 +1515,36 @@ class MainApp : Application() {
                 currentData = vendingMachineDAO.getAll().sortedBy { it.id }
                 val observableData = FXCollections.observableArrayList(currentData)
                 filteredData = FilteredList(observableData) { true }
-                tableView.items = filteredData
+                currentPage = 0
+                updatePagination()
             }
             Product::class.java -> {
                 currentData = productDAO.getAll().sortedBy { it.id }
                 val observableData = FXCollections.observableArrayList(currentData)
                 filteredData = FilteredList(observableData) { true }
-                tableView.items = filteredData
+                currentPage = 0
+                updatePagination()
             }
             Sale::class.java -> {
                 currentData = saleDAO.getAll().sortedBy { it.id }
                 val observableData = FXCollections.observableArrayList(currentData)
                 filteredData = FilteredList(observableData) { true }
-                tableView.items = filteredData
+                currentPage = 0
+                updatePagination()
             }
             User::class.java -> {
                 currentData = userDAO.getAll().sortedBy { it.id }
                 val observableData = FXCollections.observableArrayList(currentData)
                 filteredData = FilteredList(observableData) { true }
-                tableView.items = filteredData
+                currentPage = 0
+                updatePagination()
             }
             Maintenance::class.java -> {
                 currentData = maintenanceDAO.getAll().sortedBy { it.id }
                 val observableData = FXCollections.observableArrayList(currentData)
                 filteredData = FilteredList(observableData) { true }
-                tableView.items = filteredData
+                currentPage = 0
+                updatePagination()
             }
         }
     }
