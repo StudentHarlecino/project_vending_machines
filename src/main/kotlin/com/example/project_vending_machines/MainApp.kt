@@ -3,7 +3,6 @@ package com.example.project_vending_machines
 import javafx.application.Application
 import javafx.beans.property.SimpleStringProperty
 import javafx.collections.FXCollections
-import javafx.collections.ObservableList
 import javafx.collections.transformation.FilteredList
 import javafx.geometry.Insets
 import javafx.geometry.Pos
@@ -20,22 +19,10 @@ import java.time.format.DateTimeFormatter
 import com.example.project_vending_machines.dao.*
 import com.example.project_vending_machines.entity.*
 import javafx.beans.property.SimpleObjectProperty
-import javafx.scene.chart.LineChart
-import javafx.scene.chart.NumberAxis
-import javafx.scene.chart.CategoryAxis
-import javafx.scene.chart.XYChart
 import javafx.scene.layout.Priority
 import javafx.event.EventHandler
-import javafx.scene.Node
-import javafx.scene.paint.Color
-import javafx.scene.shape.Rectangle
 import java.math.BigDecimal
-import javafx.scene.control.cell.PropertyValueFactory
-import javafx.beans.value.ChangeListener
-import javafx.beans.value.ObservableValue
 import javafx.stage.Modality
-import java.time.format.DateTimeParseException
-import java.io.File
 import javafx.stage.FileChooser
 import java.nio.charset.Charset
 import java.nio.file.Files
@@ -65,6 +52,10 @@ class MainApp : Application() {
     private lateinit var recordsInfoLabel: Label
     private lateinit var prevButton: Button
     private lateinit var nextButton: Button
+
+    // Форматтеры дат
+    private val dateFormatter = DateTimeFormatter.ofPattern("dd.MM.yyyy")
+    private val dateTimeFormatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm")
 
     override fun start(primaryStage: Stage) {
         primaryStage.title = "ООО Торговые Автоматы - Личный кабинет"
@@ -107,8 +98,24 @@ class MainApp : Application() {
                 when (type) {
                     "int" -> text.toInt()
                     "decimal" -> text.toBigDecimal()
-                    "date" -> LocalDate.parse(text)
-                    "datetime" -> LocalDateTime.parse(text)
+                    "date" -> {
+                        // Пробуем распарсить в формате дд.мм.гггг
+                        try {
+                            LocalDate.parse(text, dateFormatter)
+                        } catch (e: Exception) {
+                            // Если не получилось, пробуем стандартный формат
+                            LocalDate.parse(text)
+                        }
+                    }
+                    "datetime" -> {
+                        // Пробуем распарсить в формате дд.мм.гггг ЧЧ:мм
+                        try {
+                            LocalDateTime.parse(text, dateTimeFormatter)
+                        } catch (e: Exception) {
+                            // Если не получилось, пробуем стандартный формат
+                            LocalDateTime.parse(text)
+                        }
+                    }
                 }
             } catch (e: Exception) {
                 setError(field)
@@ -302,24 +309,7 @@ class MainApp : Application() {
         tableView.style = "-fx-font-size: 12px;"
         tableView.columnResizePolicy = TableView.CONSTRAINED_RESIZE_POLICY
 
-        // Выделение цветом нечетных строк
-        tableView.setRowFactory { tv ->
-            object : TableRow<Any>() {
-                override fun updateItem(item: Any?, empty: Boolean) {
-                    super.updateItem(item, empty)
-                    if (!empty && item != null) {
-                        // Выделяем нечетные строки
-                        if (index % 2 == 1) {
-                            style = "-fx-background-color: #f0f0f0;"
-                        } else {
-                            style = ""
-                        }
-                    } else {
-                        style = ""
-                    }
-                }
-            }
-        }
+
 
         VBox.setVgrow(tableView, Priority.ALWAYS)
 
@@ -370,7 +360,7 @@ class MainApp : Application() {
                 tableView.columns.add(addressColumn)
 
                 createColumn("Дата", "installationDate", 90.0) { date ->
-                    (date as? LocalDate)?.format(DateTimeFormatter.ofPattern("dd.MM.yy")) ?: "—"
+                    (date as? LocalDate)?.format(dateFormatter) ?: "—"
                 }
 
                 addActionColumn()
@@ -455,7 +445,7 @@ class MainApp : Application() {
                 createColumn("Кол-во", "quantitySold", 70.0)
                 createColumn("Сумма", "totalAmount", 80.0) { amount -> "$amount ₽" }
                 createColumn("Дата", "saleDatetime", 120.0) { date ->
-                    (date as? LocalDateTime)?.format(DateTimeFormatter.ofPattern("dd.MM.yy HH:mm")) ?: "—"
+                    (date as? LocalDateTime)?.format(dateTimeFormatter) ?: "—"
                 }
                 createColumn("Оплата", "paymentMethod", 80.0)
                 addActionColumn()
@@ -488,10 +478,10 @@ class MainApp : Application() {
                 tableView.columns.add(roleColumn)
 
                 createColumn("Создан", "createdAt", 80.0) { date ->
-                    (date as? LocalDateTime)?.format(DateTimeFormatter.ofPattern("dd.MM.yy")) ?: "—"
+                    (date as? LocalDateTime)?.format(dateTimeFormatter) ?: "—"
                 }
                 createColumn("Вход", "lastLogin", 80.0) { date ->
-                    (date as? LocalDateTime)?.format(DateTimeFormatter.ofPattern("dd.MM.yy")) ?: "—"
+                    (date as? LocalDateTime)?.format(dateTimeFormatter) ?: "—"
                 }
                 addActionColumn()
             }
@@ -511,7 +501,7 @@ class MainApp : Application() {
                 tableView.columns.add(deviceColumn)
 
                 createColumn("Дата", "serviceDate", 90.0) { date ->
-                    (date as? LocalDate)?.format(DateTimeFormatter.ofPattern("dd.MM.yy")) ?: "—"
+                    (date as? LocalDate)?.format(dateFormatter) ?: "—"
                 }
                 createColumn("Описание", "description", 200.0)
 
@@ -770,7 +760,7 @@ class MainApp : Application() {
 
         val fileChooser = FileChooser()
         fileChooser.title = "Сохранить как CSV"
-        fileChooser.initialFileName = "${getEntityName(entityClass)}_${LocalDate.now()}.csv"
+        fileChooser.initialFileName = "${getEntityName(entityClass)}_${LocalDate.now().format(dateFormatter)}.csv"
         fileChooser.extensionFilters.addAll(
             FileChooser.ExtensionFilter("CSV файлы", "*.csv"),
             FileChooser.ExtensionFilter("Все файлы", "*.*")
@@ -791,8 +781,8 @@ class MainApp : Application() {
                 val row = tableView.columns.filter { it.text != "Действия" }.joinToString(";") { column ->
                     val cellData = getCellData(item, column)
                     when (cellData) {
-                        is LocalDate -> cellData.format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))
-                        is LocalDateTime -> cellData.format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))
+                        is LocalDate -> cellData.format(dateFormatter)
+                        is LocalDateTime -> cellData.format(dateTimeFormatter)
                         is BigDecimal -> cellData.toString().replace(".", ",")
                         else -> cellData?.toString()?.replace(";", ",") ?: ""
                     }
@@ -816,7 +806,7 @@ class MainApp : Application() {
 
         val fileChooser = FileChooser()
         fileChooser.title = "Сохранить как HTML"
-        fileChooser.initialFileName = "${getEntityName(entityClass)}_${LocalDate.now()}.html"
+        fileChooser.initialFileName = "${getEntityName(entityClass)}_${LocalDate.now().format(dateFormatter)}.html"
         fileChooser.extensionFilters.addAll(
             FileChooser.ExtensionFilter("HTML файлы", "*.html", "*.htm"),
             FileChooser.ExtensionFilter("Все файлы", "*.*")
@@ -839,7 +829,7 @@ class MainApp : Application() {
             content.appendLine("table { border-collapse: collapse; width: 100%; background-color: white; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }")
             content.appendLine("th { background-color: #3498db; color: white; padding: 12px; text-align: left; }")
             content.appendLine("td { padding: 8px 12px; border-bottom: 1px solid #ddd; }")
-            content.appendLine("tr:nth-child(even) { background-color: #f2f2f2; }") // Выделение четных строк в HTML
+            content.appendLine("tr:nth-child(even) { background-color: #f2f2f2; }")
             content.appendLine("tr:hover { background-color: #e8f4f8; }")
             content.appendLine(".footer { margin-top: 20px; text-align: center; color: #7f8c8d; font-size: 12px; }")
             content.appendLine("</style>")
@@ -847,7 +837,7 @@ class MainApp : Application() {
             content.appendLine("<body>")
 
             content.appendLine("<h1>${getEntityName(entityClass)}</h1>")
-            content.appendLine("<div class='date'>Отчет создан: ${LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))}</div>")
+            content.appendLine("<div class='date'>Отчет создан: ${LocalDateTime.now().format(dateTimeFormatter)}</div>")
 
             content.appendLine("<table>")
             content.appendLine("<thead><tr>")
@@ -863,8 +853,8 @@ class MainApp : Application() {
                 tableView.columns.filter { it.text != "Действия" }.forEach { column ->
                     val cellData = getCellData(item, column)
                     val text = when (cellData) {
-                        is LocalDate -> cellData.format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))
-                        is LocalDateTime -> cellData.format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))
+                        is LocalDate -> cellData.format(dateFormatter)
+                        is LocalDateTime -> cellData.format(dateTimeFormatter)
                         else -> cellData?.toString() ?: ""
                     }
                     content.appendLine("<td>$text</td>")
@@ -967,16 +957,39 @@ class MainApp : Application() {
             labelText: String,
             required: Boolean = false,
             type: String? = null,
-            example: String = ""
+            example: String = "",
+            editable: Boolean = true
         ): TextField {
             val label = Label(labelText)
             if (required) label.style = "-fx-font-weight: bold; -fx-text-fill: #c0392b;"
             val tf = TextField()
+            tf.isEditable = editable
             tf.promptText = example
             grid.add(label, 0, row)
             grid.add(tf, 1, row++)
             fields.add(FieldMeta(tf, required, type))
             return tf
+        }
+
+        fun addDateField(
+            labelText: String,
+            required: Boolean = false,
+            example: String = ""
+        ): DatePicker {
+            val label = Label(labelText)
+            if (required) label.style = "-fx-font-weight: bold; -fx-text-fill: #c0392b;"
+            val dp = DatePicker()
+            dp.promptText = example
+            dp.converter = object : javafx.util.StringConverter<LocalDate>() {
+                private val formatter = dateFormatter
+                override fun toString(date: LocalDate?): String = date?.format(formatter) ?: ""
+                override fun fromString(string: String): LocalDate? =
+                    try { LocalDate.parse(string, formatter) } catch (e: Exception) { null }
+            }
+            grid.add(label, 0, row)
+            grid.add(dp, 1, row++)
+            fields.add(FieldMeta(dp, required, "date"))
+            return dp
         }
 
         fun addComboBox(
@@ -1007,7 +1020,7 @@ class MainApp : Application() {
                 addTextField("Модем*", true, null, "1824100025")
                 addTextField("Адрес*", true, null, "ул. Ленина, 10")
                 addTextField("Место*", true, null, "1 этаж")
-                addTextField("Дата установки*", true, "date", "2024-01-15")
+                addDateField("Дата установки*", true, "дд.мм.гггг")
             }
 
             Product::class.java -> {
@@ -1026,9 +1039,34 @@ class MainApp : Application() {
                 addComboBox("Устройство*", machines, true)
                 addComboBox("Продукт*", products, true)
                 addTextField("Количество*", true, "int", "3")
-                addTextField("Сумма*", true, "decimal", "450.00")
-                addTextField("Дата*", true, "datetime", "2024-03-20T10:30:00")
+                val amountField = addTextField("Сумма*", true, "decimal", "450.00", false) // Недоступно для редактирования
+                addTextField("Дата*", true, "datetime", "дд.мм.гггг чч:мм")
                 addTextField("Оплата*", true, null, "Наличные/Карта")
+
+                // Автоматический расчет суммы при выборе продукта и количества
+                val productCb = fields[1].field as ComboBox<Pair<Any, String>>
+                val quantityField = fields[2].field as TextField
+
+                val updateAmount = {
+                    try {
+                        val productId = (productCb.value?.first as? Number)?.toInt()
+                        val quantity = quantityField.text.toIntOrNull() ?: 0
+                        if (productId != null && quantity > 0) {
+                            val product = productDAO.getById(productId)
+                            if (product != null) {
+                                val total = product.price.multiply(BigDecimal(quantity))
+                                amountField.text = total.toString()
+                            }
+                        } else {
+                            amountField.text = ""
+                        }
+                    } catch (e: Exception) {
+                        // Игнорируем ошибки при расчете
+                    }
+                }
+
+                productCb.valueProperty().addListener { _, _, _ -> updateAmount() }
+                quantityField.textProperty().addListener { _, _, _ -> updateAmount() }
             }
 
             User::class.java -> {
@@ -1049,7 +1087,7 @@ class MainApp : Application() {
                 val users = userDAO.getAll().map { it.id as Any to "${it.lastName} ${it.firstName}" }
 
                 addComboBox("Устройство*", machines, true)
-                addTextField("Дата*", true, "date", "2024-03-20")
+                addDateField("Дата*", true, "дд.мм.гггг")
                 addTextField("Описание*", true, null, "Замена детали")
                 addComboBox("Исполнитель*", users, true)
             }
@@ -1063,8 +1101,19 @@ class MainApp : Application() {
         fun validateAll(): Boolean {
             return fields.all { meta ->
                 when (val field = meta.field) {
-                    is TextField -> validateField(field, meta.required, meta.type)
+                    is TextField -> {
+                        if (!field.isEditable) true else validateField(field, meta.required, meta.type)
+                    }
                     is ComboBox<*> -> {
+                        if (meta.required && field.value == null) {
+                            field.style = "-fx-border-color: #e74c3c; -fx-border-width: 2;"
+                            false
+                        } else {
+                            field.style = ""
+                            true
+                        }
+                    }
+                    is DatePicker -> {
                         if (meta.required && field.value == null) {
                             field.style = "-fx-border-color: #e74c3c; -fx-border-width: 2;"
                             false
@@ -1081,11 +1130,18 @@ class MainApp : Application() {
         fields.forEach { meta ->
             when (val field = meta.field) {
                 is TextField -> {
-                    field.textProperty().addListener { _, _, _ ->
-                        saveButton.isDisable = !validateAll()
+                    if (field.isEditable) {
+                        field.textProperty().addListener { _, _, _ ->
+                            saveButton.isDisable = !validateAll()
+                        }
                     }
                 }
                 is ComboBox<*> -> {
+                    field.valueProperty().addListener { _, _, _ ->
+                        saveButton.isDisable = !validateAll()
+                    }
+                }
+                is DatePicker -> {
                     field.valueProperty().addListener { _, _, _ ->
                         saveButton.isDisable = !validateAll()
                     }
@@ -1105,7 +1161,7 @@ class MainApp : Application() {
                                 modem = (fields[3].field as TextField).text,
                                 address = (fields[4].field as TextField).text,
                                 location = (fields[5].field as TextField).text,
-                                installationDate = LocalDate.parse((fields[6].field as TextField).text)
+                                installationDate = (fields[6].field as DatePicker).value
                             )
                         )
                     }
@@ -1133,7 +1189,7 @@ class MainApp : Application() {
                                 productId = (productCb.value.first as Number).toInt(),
                                 quantitySold = (fields[2].field as TextField).text.toInt(),
                                 totalAmount = (fields[3].field as TextField).text.toBigDecimal(),
-                                saleDatetime = LocalDateTime.parse((fields[4].field as TextField).text),
+                                saleDatetime = LocalDateTime.parse((fields[4].field as TextField).text, dateTimeFormatter),
                                 paymentMethod = (fields[5].field as TextField).text
                             )
                         )
@@ -1162,7 +1218,7 @@ class MainApp : Application() {
                         maintenanceDAO.save(
                             Maintenance(
                                 deviceId = (deviceCb.value.first as Number).toInt(),
-                                serviceDate = LocalDate.parse((fields[1].field as TextField).text),
+                                serviceDate = (fields[1].field as DatePicker).value,
                                 description = (fields[2].field as TextField).text,
                                 performedBy = (performerCb.value.first as Number).toInt()
                             )
@@ -1214,16 +1270,40 @@ class MainApp : Application() {
             value: String,
             required: Boolean = false,
             type: String? = null,
-            example: String = ""
+            example: String = "",
+            editable: Boolean = true
         ): TextField {
             val label = Label(labelText)
             if (required) label.style = "-fx-font-weight: bold; -fx-text-fill: #c0392b;"
             val tf = TextField(value)
+            tf.isEditable = editable
             tf.promptText = example
             grid.add(label, 0, row)
             grid.add(tf, 1, row++)
             fields.add(FieldMeta(tf, required, type))
             return tf
+        }
+
+        fun addDateField(
+            labelText: String,
+            value: LocalDate?,
+            required: Boolean = false,
+            example: String = ""
+        ): DatePicker {
+            val label = Label(labelText)
+            if (required) label.style = "-fx-font-weight: bold; -fx-text-fill: #c0392b;"
+            val dp = DatePicker(value)
+            dp.promptText = example
+            dp.converter = object : javafx.util.StringConverter<LocalDate>() {
+                private val formatter = dateFormatter
+                override fun toString(date: LocalDate?): String = date?.format(formatter) ?: ""
+                override fun fromString(string: String): LocalDate? =
+                    try { LocalDate.parse(string, formatter) } catch (e: Exception) { null }
+            }
+            grid.add(label, 0, row)
+            grid.add(dp, 1, row++)
+            fields.add(FieldMeta(dp, required, "date"))
+            return dp
         }
 
         fun addComboBox(
@@ -1241,8 +1321,8 @@ class MainApp : Application() {
             }
 
             // Устанавливаем выбранное значение
-            selectedId?.let { id ->
-                val selectedItem = items.find { it.first == id }
+            if (selectedId != null) {
+                val selectedItem = items.find { it.first == selectedId }
                 if (selectedItem != null) {
                     cb.value = selectedItem
                 }
@@ -1264,7 +1344,7 @@ class MainApp : Application() {
                 addTextField("Модем*", item.modem ?: "", true)
                 addTextField("Адрес*", item.address ?: "", true)
                 addTextField("Место*", item.location ?: "", true)
-                addTextField("Дата установки*", item.installationDate?.toString() ?: "", true, "date", "2024-01-15")
+                addDateField("Дата установки*", item.installationDate, true, "дд.мм.гггг")
             }
 
             is Product -> {
@@ -1283,9 +1363,32 @@ class MainApp : Application() {
                 addComboBox("Устройство*", machines, item.deviceId, true)
                 addComboBox("Продукт*", products, item.productId, true)
                 addTextField("Количество*", item.quantitySold.toString(), true, "int")
-                addTextField("Сумма*", item.totalAmount.toString(), true, "decimal")
-                addTextField("Дата*", item.saleDatetime.toString(), true, "datetime", "2024-03-20T10:30:00")
+                val amountField = addTextField("Сумма*", item.totalAmount.toString(), true, "decimal", editable = false)
+                addTextField("Дата*", item.saleDatetime.format(dateTimeFormatter), true, "datetime", "дд.мм.гггг чч:мм")
                 addTextField("Оплата*", item.paymentMethod ?: "", true)
+
+                // Автоматический расчет суммы при изменении продукта или количества
+                val productCb = fields[1].field as ComboBox<Pair<Any, String>>
+                val quantityField = fields[2].field as TextField
+
+                val updateAmount = {
+                    try {
+                        val productId = (productCb.value?.first as? Number)?.toInt()
+                        val quantity = quantityField.text.toIntOrNull() ?: 0
+                        if (productId != null && quantity > 0) {
+                            val product = productDAO.getById(productId)
+                            if (product != null) {
+                                val total = product.price.multiply(BigDecimal(quantity))
+                                amountField.text = total.toString()
+                            }
+                        }
+                    } catch (e: Exception) {
+                        // Игнорируем ошибки при расчете
+                    }
+                }
+
+                productCb.valueProperty().addListener { _, _, _ -> updateAmount() }
+                quantityField.textProperty().addListener { _, _, _ -> updateAmount() }
             }
 
             is User -> {
@@ -1298,7 +1401,7 @@ class MainApp : Application() {
                 val roles = roleDAO.getAll().map { it.id as Any to it.name }
                 addComboBox("Роль*", roles, item.roleId, true)
 
-                addTextField("Пароль*", "", true)
+                // Поле пароля не показываем при редактировании
             }
 
             is Maintenance -> {
@@ -1306,7 +1409,7 @@ class MainApp : Application() {
                 val users = userDAO.getAll().map { it.id as Any to "${it.lastName} ${it.firstName}" }
 
                 addComboBox("Устройство*", machines, item.deviceId, true)
-                addTextField("Дата*", item.serviceDate.toString(), true, "date", "2024-03-20")
+                addDateField("Дата*", item.serviceDate, true, "дд.мм.гггг")
                 addTextField("Описание*", item.description ?: "", true)
                 addComboBox("Исполнитель*", users, item.performedBy, true)
             }
@@ -1320,8 +1423,19 @@ class MainApp : Application() {
         fun validateAll(): Boolean {
             return fields.all { meta ->
                 when (val field = meta.field) {
-                    is TextField -> validateField(field, meta.required, meta.type)
+                    is TextField -> {
+                        if (!field.isEditable) true else validateField(field, meta.required, meta.type)
+                    }
                     is ComboBox<*> -> {
+                        if (meta.required && field.value == null) {
+                            field.style = "-fx-border-color: #e74c3c; -fx-border-width: 2;"
+                            false
+                        } else {
+                            field.style = ""
+                            true
+                        }
+                    }
+                    is DatePicker -> {
                         if (meta.required && field.value == null) {
                             field.style = "-fx-border-color: #e74c3c; -fx-border-width: 2;"
                             false
@@ -1338,11 +1452,18 @@ class MainApp : Application() {
         fields.forEach { meta ->
             when (val field = meta.field) {
                 is TextField -> {
-                    field.textProperty().addListener { _, _, _ ->
-                        saveButton.isDisable = !validateAll()
+                    if (field.isEditable) {
+                        field.textProperty().addListener { _, _, _ ->
+                            saveButton.isDisable = !validateAll()
+                        }
                     }
                 }
                 is ComboBox<*> -> {
+                    field.valueProperty().addListener { _, _, _ ->
+                        saveButton.isDisable = !validateAll()
+                    }
+                }
+                is DatePicker -> {
                     field.valueProperty().addListener { _, _, _ ->
                         saveButton.isDisable = !validateAll()
                     }
@@ -1362,7 +1483,7 @@ class MainApp : Application() {
                         item.modem = (fields[3].field as TextField).text
                         item.address = (fields[4].field as TextField).text
                         item.location = (fields[5].field as TextField).text
-                        item.installationDate = LocalDate.parse((fields[6].field as TextField).text)
+                        item.installationDate = (fields[6].field as DatePicker).value
                         vendingMachineDAO.update(item)
                     }
 
@@ -1384,7 +1505,7 @@ class MainApp : Application() {
                         item.productId = (productCb.value.first as Number).toInt()
                         item.quantitySold = (fields[2].field as TextField).text.toInt()
                         item.totalAmount = (fields[3].field as TextField).text.toBigDecimal()
-                        item.saleDatetime = LocalDateTime.parse((fields[4].field as TextField).text)
+                        item.saleDatetime = LocalDateTime.parse((fields[4].field as TextField).text, dateTimeFormatter)
                         item.paymentMethod = (fields[5].field as TextField).text
                         saleDAO.update(item)
                     }
@@ -1399,12 +1520,6 @@ class MainApp : Application() {
                         item.phone = (fields[4].field as TextField).text
                         item.roleId = (roleCb.value.first as Number).toInt()
 
-                        // Если пароль не пустой, обновляем его
-                        val passwordField = fields[6].field as TextField
-                        if (passwordField.text.isNotBlank()) {
-                            item.passwordHash = passwordField.text
-                        }
-
                         userDAO.update(item)
                     }
 
@@ -1413,7 +1528,7 @@ class MainApp : Application() {
                         val performerCb = fields[3].field as ComboBox<Pair<Any, String>>
 
                         item.deviceId = (deviceCb.value.first as Number).toInt()
-                        item.serviceDate = LocalDate.parse((fields[1].field as TextField).text)
+                        item.serviceDate = (fields[1].field as DatePicker).value
                         item.description = (fields[2].field as TextField).text
                         item.performedBy = (performerCb.value.first as Number).toInt()
                         maintenanceDAO.update(item)
@@ -1424,6 +1539,7 @@ class MainApp : Application() {
                 refreshCurrentTable()
             } catch (e: Exception) {
                 showAlert("Ошибка", e.message ?: "Ошибка обновления")
+                e.printStackTrace()
             }
         }
 
